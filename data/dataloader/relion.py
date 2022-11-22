@@ -9,8 +9,8 @@ import os
 from glob import glob
 import numpy as np
 
-from ..base.particle_dataset import ParticleDataset
-from ..base.star_file import load_star
+from ..handlers.particle_dataset import ParticleDataset
+from ..handlers.star_file import load_star
 
 
 class RelionDataset:
@@ -41,7 +41,7 @@ class RelionDataset:
     def load(self, path: str) -> None:
         """
         Load data from path
-        :param path: relion job directory or data file
+        :param path: dataloader job directory or data file
         """
         if os.path.isfile(path):
             data_star_path = path

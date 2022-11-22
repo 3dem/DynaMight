@@ -16,8 +16,8 @@ import argparse
 import numpy as np
 import mrcfile
 import torch.nn.functional as F
-from voxelium.base.particle_image_preprocessor import ParticleImagePreprocessor
-from voxelium.base.grid import idht, rescale_real
+from ..data.handlers.particle_image_preprocessor import ParticleImagePreprocessor
+from .base.grid import idht, rescale_real
 from voxelium.relion import RelionDataset
 from voxelium.sparse_refine.vae import TrainingContainer
 from voxelium.base.io_logger import IOLogger

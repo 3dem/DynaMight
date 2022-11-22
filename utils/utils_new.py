@@ -995,14 +995,14 @@ def select_subset(starfile,subset_indices,outname):
     with open(starfile,'r+') as f:
         with open(outname,'w') as output:
             d = f.readlines()
-            mode = 'base'
+            mode = 'handlers'
             count = 0
             startcount = 0
             for i in d:
                 if i.startswith('data_particles'):
                     print('particles')
                     mode = 'particles'
-                if mode == 'base':
+                if mode == 'handlers':
                     output.write(i)
 
                 if mode == 'particles':

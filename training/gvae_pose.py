@@ -16,14 +16,11 @@ import mrcfile
 
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from voxelium.base.particle_image_preprocessor import ParticleImagePreprocessor
-#from voxelium.base.torch_utils import make_plot_fig
-from voxelium.relion import RelionDataset
-from voxelium.base.io_logger import IOLogger
+from ..data.handlers.particle_image_preprocessor import ParticleImagePreprocessor
+from ..data.handlers.io_logger import IOLogger
 from utils_new import *
-from networks_new import *
-import torch.optim as optim
-from coarse_grain import*
+from ..models import *
+from coarse_grain import *
 
 
 

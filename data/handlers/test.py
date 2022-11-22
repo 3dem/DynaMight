@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Test module for the base module
+Test module for the handlers module
 """
 
 import unittest

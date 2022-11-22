@@ -27,6 +27,13 @@ dependencies = [
     "torch",
     "numpy",
     "mrcfile",
+    "starfile",
+    "scikit-learn",
+    "umap-learn",
+    "matplotlib",
+    "napari",
+    "tsnecuda",
+    "tqdm",
 ]
 
 # extras
@@ -43,6 +50,10 @@ dev = [
     "pytest",
     "rich",
     "ruff",
+]
+gui = [
+    "napari",
+    "pyqt5",
 ]
 
 [project.urls]
