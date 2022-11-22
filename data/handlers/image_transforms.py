@@ -10,7 +10,7 @@ import numpy as np
 
 import torch
 
-from voxelium.base.grid import dft, idft, dht, idht, spectrum_to_grid, get_spectral_indices
+from .grid import dft, idft, dht, idht, spectrum_to_grid, get_spectral_indices
 
 Tensor = TypeVar('torch.tensor')
 
