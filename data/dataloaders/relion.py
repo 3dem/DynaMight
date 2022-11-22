@@ -41,7 +41,7 @@ class RelionDataset:
     def load(self, path: str) -> None:
         """
         Load data from path
-        :param path: dataloader job directory or data file
+        :param path: dataloaders job directory or data file
         """
         if os.path.isfile(path):
             data_star_path = path

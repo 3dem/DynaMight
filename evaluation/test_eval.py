@@ -5,7 +5,7 @@ import mrcfile
 import torch.nn.functional as F
 from sklearn.neighbors import KernelDensity
 from ..data.handlers.particle_image_preprocessor import ParticleImagePreprocessor
-from ..data.dataloader import RelionDataset
+from ..data.dataloaders import RelionDataset
 from torch.utils.data import DataLoader, TensorDataset
 
 from ..utils.utils_new import initialize_dataset, pdb2points

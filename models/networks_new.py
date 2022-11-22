@@ -10,7 +10,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.fft
-from utils_new import *
+from ..utils.utils_new import *
 
 
 def positional_encoding_geom2(coords, enc_dim, DD):
