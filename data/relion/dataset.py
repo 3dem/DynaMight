@@ -12,9 +12,9 @@ import mrcfile
 
 from typing import List
 
-from voxelium.base.ctf import ContrastTransferFunction
-from voxelium.base.particle_dataset import ParticleDataset
-from voxelium.base.star_file import load_star
+from ..base.ctf import ContrastTransferFunction
+from ..base.particle_dataset import ParticleDataset
+from ..base.star_file import load_star
 
 
 class RelionDataset:
