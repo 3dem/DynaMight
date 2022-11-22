@@ -5,14 +5,10 @@ Module for loading RELION particle datasets
 """
 
 import os
-import warnings
+
 from glob import glob
 import numpy as np
-import mrcfile
 
-from typing import List
-
-from ..base.ctf import ContrastTransferFunction
 from ..base.particle_dataset import ParticleDataset
 from ..base.star_file import load_star
 
@@ -69,7 +65,8 @@ class RelionDataset:
 
         # Convert image paths to absolute paths
         for i in range(len(self.image_file_paths)):
-            self.image_file_paths[i] = os.path.abspath(os.path.join(self.project_root, self.image_file_paths[i]))
+            self.image_file_paths[i] = os.path.abspath(
+                os.path.join(self.project_root, self.image_file_paths[i]))
 
         # TODO check cross reference integrity, e.g. all part_noise_group_id exist in noise_group_id
 
@@ -88,7 +85,7 @@ class RelionDataset:
             self.optics_groups
         )
         return dataset
-        
+
     def _load_optics_group(self, optics: dict) -> None:
         if 'rlnOpticsGroup' not in optics:
             raise RuntimeError(
@@ -181,8 +178,8 @@ class RelionDataset:
 
             # CTF parameters -------------------------------------
             if 'rlnDefocusU' in particles and \
-                    'rlnDefocusV' in particles and \
-                    'rlnDefocusAngle' in particles:
+                'rlnDefocusV' in particles and \
+                'rlnDefocusAngle' in particles:
                 ctf_u = float(particles['rlnDefocusU'][i])
                 ctf_v = float(particles['rlnDefocusV'][i])
                 ctf_a = float(particles['rlnDefocusAngle'][i])
@@ -192,8 +189,8 @@ class RelionDataset:
 
             # Rotation parameters --------------------------------
             if 'rlnAngleRot' in particles and \
-                    'rlnAngleTilt' in particles and \
-                    'rlnAnglePsi' in particles:
+                'rlnAngleTilt' in particles and \
+                'rlnAnglePsi' in particles:
                 a = np.array([
                     float(particles['rlnAngleRot'][i]),
                     float(particles['rlnAngleTilt'][i]),
@@ -275,5 +272,6 @@ class RelionDataset:
             if os.path.isfile(trial_path):
                 return current_path
             if current_path == os.path.dirname(current_path):  # At filesystem root
-                raise RuntimeError(f"Relion project directory could not be found from the subdirectory: {from_path}")
+                raise RuntimeError(
+                    f"Relion project directory could not be found from the subdirectory: {from_path}")
             current_path = os.path.dirname(current_path)
