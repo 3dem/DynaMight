@@ -23,7 +23,11 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
 ]
 dynamic = ["version"]
-dependencies = []
+dependencies = [
+    "torch",
+    "numpy",
+    "mrcfile",
+]
 
 # extras
 # https://peps.python.org/pep-0621/#dependencies-optional-dependencies
