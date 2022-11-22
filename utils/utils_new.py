@@ -56,7 +56,8 @@ def Fourier_loss(x,y,ctf,W=None,sig = None):
     l =  torch.mean(torch.pow(torch.mean(torch.abs(x-y)**2,dim=[-1,-2]),0.5))
     return l
 
-
+'----------------------------------------------------------------'
+'Unnecessary and only for iterative reconstruction tests'
 def Fourier_loss_it(x,y,ctf,W=None,sig = None):
     if x.is_complex():
         pass
@@ -76,6 +77,7 @@ def Fourier_loss_it(x,y,ctf,W=None,sig = None):
     #     x = torch.multiply(x,ctf)
     l =  torch.mean(torch.mean(torch.abs(x-y)**2*sig[None,:,:],dim=[-1,-2]))
     return l
+'--------------------------------------------------------------------'
 
 def FRC_loss(x,y,ctf,device,batch_reduce = 'mean'):
     y = torch.fft.fft2(y.squeeze(),dim=[-1,-2])
