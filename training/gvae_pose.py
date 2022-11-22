@@ -18,9 +18,10 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from ..data.handlers.particle_image_preprocessor import ParticleImagePreprocessor
 from ..data.handlers.io_logger import IOLogger
-from utils_new import *
+from ..utils.utils_new import *
 from ..models import *
 from coarse_grain import *
+# TODO: add coarse graining to GitHub
 
 
 
