@@ -1321,3 +1321,60 @@ def compute_threshold(V):
         percent[i] = Vi/V_norm
     th_ind = torch.argmin(torch.abs(percent-0.91))
     return lam[th_ind]
+
+def bernstein_poly(i, n, t):
+    """
+     The Bernstein polynomial of n, i as a function of t
+    """
+
+    return comb(n, i) * (t ** (n - i)) * (1 - t) ** i
+
+
+def bezier_curve(points, nTimes=1000):
+    """
+       Given a set of control points, return the
+       bezier curve defined by the control points.
+
+       points should be a list of lists, or list of tuples
+       such as [ [1,1], 
+                 [2,3], 
+                 [4,5], ..[Xn, Yn] ]
+        nTimes is the number of time steps, defaults to 1000
+
+        See http://processingjs.nihongoresources.com/bezierinfo/
+    """
+
+    nPoints = len(points)
+    xPoints = np.array([p[0] for p in points])
+    yPoints = np.array([p[1] for p in points])
+
+    t = np.linspace(0.0, 1.0, nTimes)
+
+    polynomial_array = np.array([bernstein_poly(i, nPoints - 1, t) for i in range(0, nPoints)])
+
+    xvals = np.dot(xPoints, polynomial_array)
+    yvals = np.dot(yPoints, polynomial_array)
+
+    return xvals, yvals
+
+
+def make_equidistant(x, y, N):
+    N_p = x.shape[0]
+    points = np.stack([x, y], 1)
+    dp = points[1:] - points[:-1, :]
+    n_points = []
+    dists = np.linalg.norm(dp, axis=1)
+    min_dist = np.min(dists)
+    curve_length = np.sum(dists)
+    seg_length = curve_length / (N_p - 1)
+    print('Curve length:', curve_length)
+    for i in range(N_p - 1):
+        q = dists[i] / min_dist
+        Nq = np.round(q)
+        for j in range(int(Nq) - 1):
+            n_points.append(points[i] + j * min_dist * (dp[i] / np.linalg.norm(dp[i])))
+    n_points = np.array(n_points)
+    plt.scatter(n_points[:, 0], n_points[:, 1])
+    plt.show()
+    frac = np.maximum(int(np.round(n_points.shape[0] / N)), 1)
+    return n_points[::frac, :], points

@@ -3,12 +3,10 @@ import argparse
 import numpy as np
 import mrcfile
 import torch.nn.functional as F
-from sklearn.neighbors import KernelDensity
 from ..data.handlers.particle_image_preprocessor import ParticleImagePreprocessor
-from ..data.dataloaders import RelionDataset
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader
 
-from ..utils.utils_new import initialize_dataset, pdb2points
+from ..utils.utils_new import initialize_dataset, pdb2points, bernstein_poly, bezier_curve, make_equidistant
 
 import matplotlib.pylab as plt
 
@@ -21,68 +19,11 @@ from matplotlib.figure import Figure
 from qtpy.QtCore import Qt
 from magicgui import widgets
 from matplotlib.widgets import LassoSelector, PolygonSelector
-from scipy.special import comb
 import starfile
 from matplotlib.path import Path
 from tqdm import tqdm
 
 
-def bernstein_poly(i, n, t):
-    """
-     The Bernstein polynomial of n, i as a function of t
-    """
-
-    return comb(n, i) * (t ** (n - i)) * (1 - t) ** i
-
-
-def bezier_curve(points, nTimes=1000):
-    """
-       Given a set of control points, return the
-       bezier curve defined by the control points.
-
-       points should be a list of lists, or list of tuples
-       such as [ [1,1], 
-                 [2,3], 
-                 [4,5], ..[Xn, Yn] ]
-        nTimes is the number of time steps, defaults to 1000
-
-        See http://processingjs.nihongoresources.com/bezierinfo/
-    """
-
-    nPoints = len(points)
-    xPoints = np.array([p[0] for p in points])
-    yPoints = np.array([p[1] for p in points])
-
-    t = np.linspace(0.0, 1.0, nTimes)
-
-    polynomial_array = np.array([bernstein_poly(i, nPoints - 1, t) for i in range(0, nPoints)])
-
-    xvals = np.dot(xPoints, polynomial_array)
-    yvals = np.dot(yPoints, polynomial_array)
-
-    return xvals, yvals
-
-
-def make_equidistant(x, y, N):
-    N_p = x.shape[0]
-    points = np.stack([x, y], 1)
-    dp = points[1:] - points[:-1, :]
-    n_points = []
-    dists = np.linalg.norm(dp, axis=1)
-    min_dist = np.min(dists)
-    curve_length = np.sum(dists)
-    seg_length = curve_length / (N_p - 1)
-    print('Curve length:', curve_length)
-    for i in range(N_p - 1):
-        q = dists[i] / min_dist
-        Nq = np.round(q)
-        for j in range(int(Nq) - 1):
-            n_points.append(points[i] + j * min_dist * (dp[i] / np.linalg.norm(dp[i])))
-    n_points = np.array(n_points)
-    plt.scatter(n_points[:, 0], n_points[:, 1])
-    plt.show()
-    frac = np.maximum(int(np.round(n_points.shape[0] / N)), 1)
-    return n_points[::frac, :], points
 
 
 parser = argparse.ArgumentParser(description='VAE evaluation')
@@ -101,24 +42,31 @@ parser.add_argument('--particle_diameter', help='size of circular mask (ang)', t
                     default=None)
 parser.add_argument('--circular_mask_thickness', help='thickness of mask (ang)', type=int,
                     default=20)
+parser.add_argument('--inv_deformation', help='Inverse deformation model if available', type=str,
+                    default=None)
+parser.add_argument('--dim_red', help='Dimensionality reduction method', type=str,
+                    default='PCA')
 
 args = parser.parse_args()
 
 dataframe = starfile.read(args.particle_dir)
 
-particle_diameter = None
-circular_mask_thickness = 20
+particle_diameter = args.particle_diameter
+circular_mask_thickness = args.circular_mask_thickness
 dataloader_threads = 8
 batch_size = args.batch_size
-# latent_dim = 5
+
 device = "cpu" if args.gpu == "-1" else 'cuda:' + str(args.gpu)
-# ccp = torch.load('/cephfs/schwab/plasmodium/logs/3dim/checkpoint010.pth')
 
-# cp = torch.load('/cephfs/schwab/spike/logs/new_try/checkpoint280.pth')
+'-----------------------------------------------------------------------------'
+'load and prepare models for inference'
 cp = torch.load(args.checkpoint, map_location=device)
-cp_inv = torch.load('/cephfs/schwab/inv_checkpoint3.pth', map_location=device)
-# cp = torch.load('/cephfs/schwab/spike/logs/open3/checkpoint499.pth')
-
+if args.inv_deformation != None:
+    cp_inv = torch.load(args.inv_deformation, map_location=device)
+    inv_half1 = cp_inv['inv_half1']
+    inv_half2 = cp_inv['inv_half2']
+    inv_half1.load_state_dict(cp_inv['inv_half1_state_dict'])
+    inv_half2.load_state_dict(cp_inv['inv_half2_state_dict'])
 
 encoder = cp['encoder_' + 'half' + str(args.half)]
 cons_model = cp['consensus']
@@ -126,24 +74,16 @@ cons_model = cp['consensus']
 decoder = cp['decoder_' + 'half' + str(args.half)]
 poses = cp['poses']
 
-inv_half1 = cp_inv['inv_half1']
-inv_half2 = cp_inv['inv_half2']
-inv_half1.load_state_dict(cp_inv['inv_half1_state_dict'])
-inv_half2.load_state_dict(cp_inv['inv_half2_state_dict'])
-
 dataset, diameter_ang, box_size, ang_pix, optics_group = initialize_dataset(args.particle_dir,
                                                                             args.circular_mask_thickness,
                                                                             args.preload,
                                                                             args.particle_diameter)
-min_dist = 4.6
-
 try:
     cons_model.vol_box
     decoder.vol_box
 except:
     cons_model.vol_box = box_size
     decoder.vol_box = box_size
-# decoder = displacement_decoder(box_size,device,2,decoder.n_points,1,6,32,lin_block,decoder.pos_enc_dim).to(device)
 
 encoder.load_state_dict(cp['encoder_' + 'half' + str(args.half) + '_state_dict'])
 cons_model.load_state_dict(cp['consensus_state_dict'])
@@ -156,18 +96,14 @@ else:
     inds_half1 = cp['indices_half1'].cpu().numpy()
     indices = np.asarray(list(set(range(len(dataset))) - set(list(inds_half1))))
 
-# scales.load_state_dict(cp['scales_state_dict'])
-
-n_classes = 1
+n_classes = 1 #??????
 
 points = cons_model.pos.detach().cpu()
-# points = dbscan_gaussians(cons_model.pos.detach().cpu(), box_size, ang_pix,dist = 4.5,neighbours=3)
-print(points.shape)
+
 points = torch.tensor(points)
 cons_model.pos = torch.nn.Parameter(points, requires_grad=False)
 cons_model.n_points = len(points)
 decoder.n_points = cons_model.n_points
-# cons_model.ampvar = torch.nn.Parameter(torch.zeros(n_classes,decoder.n_points).to(device),requires_grad = False)
 
 cons_model.p2i.device = device
 decoder.p2i.device = device
@@ -182,15 +118,11 @@ cons_model.device = device
 decoder.to(device)
 cons_model.to(device)
 
-circular_mask_thickness = 20
 
 if args.mask:
     with mrcfile.open(args.mask) as mrc:
         mask = torch.tensor(mrc.data)
         mask = mask.movedim(0, 2).movedim(0, 1)
-    # decoder.mask = [mask>0]
-# decoder.mask = None
-
 
 max_diameter_ang = box_size * optics_group['pixel_size'] - circular_mask_thickness
 
@@ -211,25 +143,7 @@ if args.preload:
     dataset.preload_images()
 
 pdb_pos = pdb2points(args.pdb_series) / (box_size * ang_pix) - 0.5
-# dataset = torch.utils.data.Subset(dataset,indices)
 
-# data_loader = DataLoader(
-#     dataset=dataset,
-#     batch_size=batch_size,
-#     num_workers=8,
-#     shuffle=False,
-#     pin_memory=True
-#     )
-
-# batch = next(iter(data_loader))
-
-
-# data_preprocessor = ParticleImagePreprocessor()
-# data_preprocessor.initialize_from_stack(
-#     stack=batch["image"],
-#     circular_mask_radius=diameter_ang / (2 * optics_group['pixel_size']),
-#     circular_mask_thickness=circular_mask_thickness / optics_group['pixel_size']
-# )
 dataset_half1 = torch.utils.data.Subset(dataset, indices)
 data_loader_half1 = DataLoader(
     dataset=dataset_half1,
@@ -251,32 +165,31 @@ ang_pix = optics_group['pixel_size']
 
 pixel_distance = 1 / box_size
 
+latent_dim = decoder.latent_dim
+
+'-----------------------------------------------------------------------------'
+'Coloring by pose and shift'
 ccp = poses.orientations[indices]
-print(ccp.shape)
 ccp = F.normalize(ccp, dim=1)
-# ccp = 0.299*ccp[:,0]+0.587*ccp[:,1]+0.114*ccp[:,2]
-print(ccp.shape)
 ccp = ccp.detach().cpu().numpy()
 ccp = ccp / 2 + 0.5
 ccp = ccp[:, 2]
 
-encoder.to(device)
-decoder.to(device)
 
-latent_dim = decoder.latent_dim
-print(poses.translations.shape)
 cct = poses.translations[indices]
 cct = torch.linalg.norm(cct, dim=1)
 cct = cct.detach().cpu().numpy()
 cct = cct - np.min(cct)
 cct /= np.max(cct)
 
+
+'-----------------------------------------------------------------------------'
+'Evaluate model on the halfset'
+
 globaldis = torch.zeros(cons_model.pos.shape[0]).to(device)
 
-# ctfs = torch.zeros(len(dataset),box_size,box_size)
-
 with torch.no_grad():
-    for batch_ndx, sample in enumerate(data_loader_half1):
+    for batch_ndx, sample in enumerate(tqdm(data_loader_half1)):
         r, y, ctf, t_in = sample["rotation"], sample["image"], sample["ctf"], -sample['translation']
         idx = sample['idx']
         r, t = poses(idx)
@@ -284,11 +197,7 @@ with torch.no_grad():
         y = data_preprocessor.apply_translation(y, -t[:, 0], -t[:, 1])
         y = data_preprocessor.apply_circular_mask(y)
         ctf = torch.fft.fftshift(ctf, dim=[-1, -2])
-        # ctfs[idx] = ctf
-        # r = torch.stack([rr[:,2],rr[:,0], rr[:,1]],1)
         y, r, ctf, t = y.to(device), r.to(device), ctf.to(device), t.to(device)
-        if batch_ndx % 100 == 0:
-            print(batch_ndx)
         mu, _ = encoder(y, ctf)
         mu_in = [mu]
         _, _, _, _, dis = decoder(mu_in, r, cons_model.pos.to(device), cons_model.amp.to(device),
@@ -318,13 +227,8 @@ with torch.no_grad():
 
 c3 = torch.movedim(c3, 0, 1)
 c4 = torch.movedim(c4, 0, 1)
-
 c3 = F.normalize(c3, dim=1)
 c3 = c3 / 2 + 0.5
-rad_of_interest = 4
-
-index = torch.linalg.vector_norm(z, dim=1) < rad_of_interest
-zs = z[index]
 
 closest_idx = torch.argmin(c2)
 
@@ -334,39 +238,36 @@ dd = dd.cpu().numpy()
 
 if z.shape[1] > 2:
     print('Computing dimensionality reduction')
-    zz = TSNE(perplexity=1000.0, num_neighbors=1000, device=0).fit_transform(z.cpu())
-    # zz = umap.UMAP(random_state = 12,n_neighbors = 100,min_dist = 1.0).fit_transform(z.cpu().numpy())
-    # pca = PCA(n_components = 8)
-    # pca.fit(z.cpu().numpy())
-    # ex_var = pca.explained_variance_ratio_
-    # comps = pca.components_
-    # zz = PCA(n_components = 2).fit_transform(z.cpu().numpy())
+    if args.dim_red == 'TSNE':
+        zz = TSNE(perplexity=1000.0, num_neighbors=1000, device=0).fit_transform(z.cpu())
+    elif args.dim_red == 'UMAP':
+        zz = umap.UMAP(random_state = 12,n_neighbors = 100,min_dist = 1.0).fit_transform(z.cpu().numpy())
+    elif args.dim_red == 'PCA':
+        pca = PCA(n_components = 8)
+        pca.fit(z.cpu().numpy())
+        ex_var = pca.explained_variance_ratio_
+        comps = pca.components_
+        zz = PCA(n_components = 2).fit_transform(z.cpu().numpy())
     print('Dimensionality reduction finished')
 else:
     zz = z.cpu().numpy()
-# zz = z.cpu().numpy()
+
 cc1 = c1.cpu().numpy()
 cc2 = c2.cpu().numpy()
 cc2 = cc2 / np.max(cc2)
 cc3 = c3.cpu().numpy()
-# cc3 = np.abs(cc3)/(np.max(np.abs(cc3)))
 cc4 = c4.cpu().numpy()
 
-# cc5 = cc4/(2*np.max(np.abs(cc4)))+0.5
 cc5 = cc4 / np.max(np.linalg.norm(cc4, axis=1)) / 2 + 0.5
 cc4b = np.linalg.norm(cc4, axis=1)
 cc5 = cc5 - np.min(cc5)
 cc5 = cc5 / np.max(cc5)
 
-print(cc4.shape)
-
 cons0 = cons_model.pos.detach().cpu().numpy()
-
 c_cons = cons0 / (2 * np.max(np.abs(cons0))) + 0.5
 
 latent = zz * 100
 latent_closest = zz[closest_idx]
-
 latent_properties = {
     'region': cc2
 }
@@ -386,7 +287,6 @@ with torch.no_grad():
     V0 = decoder.volume([torch.zeros(2, latent_dim).to(device)], r.to(device),
                         cons_model.pos.to(device), cons_model.amp.to(device),
                         cons_model.ampvar.to(device), t.to(device)).float()
-    # V0 = decoder.volume([torch.zeros(2,latent_dim).to(device)],r.to(device),cons_model.pos.to(device),cons_model.amp.to(device),cons_model.ampvar.to(device),t.to(device)).float()
 
 amps = cons_model.amp.detach().cpu()
 amps = amps[0]
