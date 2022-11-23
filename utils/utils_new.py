@@ -56,46 +56,6 @@ def Fourier_loss(x,y,ctf,W=None,sig = None):
     l =  torch.mean(torch.pow(torch.mean(torch.abs(x-y)**2,dim=[-1,-2]),0.5))
     return l
 
-'----------------------------------------------------------------'
-'Unnecessary and only for iterative reconstruction tests'
-def Fourier_loss_it(x,y,ctf,W=None,sig = None):
-    if x.is_complex():
-        pass
-    else:
-        x = torch.fft.fft2(torch.fft.fftshift(x,dim = [-1,-2]),dim=[-1,-2],norm = 'ortho')
-    N = x.shape[-1]
-    y = torch.fft.fft2(torch.fft.fftshift(y,dim = [-1,-2]),dim=[-1,-2],norm = 'ortho')
-    x = torch.multiply(x,ctf)
-    ind = torch.linspace(-N,N-1,N)
-    X,Y = torch.meshgrid(ind,ind)
-    R = torch.fft.fftshift(torch.round(torch.pow(X**2+Y**2,0.5)).long())
-    #plt.imshow((R>N-1))
-    #sig[sig == 0] = 1e9
-    if W != None:
-        y = torch.multiply(y,W)
-    # else:
-    #     x = torch.multiply(x,ctf)
-    l =  torch.mean(torch.mean(torch.abs(x-y)**2*sig[None,:,:],dim=[-1,-2]))
-    return l
-'--------------------------------------------------------------------'
-
-def FRC_loss(x,y,ctf,device,batch_reduce = 'mean'):
-    y = torch.fft.fft2(y.squeeze(),dim=[-1,-2])
-    x = torch.fft.fft2(x.squeeze(),dim=[-1,-2])
-    x = torch.multiply(x,ctf)
-    N = x.shape[-1]
-    batch_size = x.shape[0]
-    eps = 1e-8
-    ind = torch.linspace(-(N-1)/2,(N-1)/2-1,N)
-    #end_ind = torch.round(torch.tensor(N/2)).long()
-    X,Y = torch.meshgrid(ind,ind)
-    R = torch.cat(batch_size*[torch.fft.fftshift(torch.round(torch.pow(X**2+Y**2,0.5)).long()).unsqueeze(0)],0).to(device)
-    num = scatter(torch.real(x*torch.conj(y)).flatten(start_dim=-2),R.flatten(start_dim=-2),reduce='mean')
-    den = torch.pow(scatter(torch.abs(x.flatten(start_dim=-2))**2,R.flatten(start_dim=-2),reduce = 'mean')*scatter(torch.abs(y.flatten(start_dim=-2))**2,R.flatten(start_dim=-2),reduce = 'mean'),0.5)
-    FRC = num/(den+eps)
-    FRC = torch.mean(num/den)
-    
-    return FRC
 
 def geometric_loss(pos,box_size,ang_pix, dist,mode, deformation = None, graph1 = None, graph2 = None, neighbour = False, distance = False, outlier = False, graph = False):
     pos = pos*box_size*ang_pix
@@ -186,11 +146,6 @@ def geometric_loss(pos,box_size,ang_pix, dist,mode, deformation = None, graph1 =
 
     return 0.0*neighbour_loss + distance_loss + outlier_loss + deformation_loss
         
-def deformation_structure(gr,pos,cons_dis,box_size,ang_pix,device):
-    pos = pos*box_size*ang_pix
-    dis = torch.pow(torch.sum((pos[:,gr[0]]-pos[:,gr[1]])**2,2),0.5)
-    diff_dis = dis-cons_dis
-    return torch.mean(diff_dis**2)
 
 
 def gaussian_distance(d,distance):
@@ -340,8 +295,6 @@ def initialize_consensus(model, ref, logdir,lr = 0.001, N_epochs = 300,mask = No
     z0 = torch.zeros(2, 2)
     r0 = torch.zeros(2, 3)
     t0 = torch.zeros(2,2)
-    #lay = AlphaLayer(maxdim=0)
-    #f1 = PartialSumBarcodeLengths(dim = 0, skip = 2)
     print('Initializing gaussian positions from reference reconstruction')
     for i in tqdm(range(N_epochs)):
         model_optimizer.zero_grad()
@@ -364,8 +317,6 @@ class ims2F_form(nn.Module):
         self.box_size = box_size
         self.device = device
         self.n_classes = n_classes
-        #self.form_factors = torch.nn.Parameter(torch.rand(box_size,n_classes),requires_grad = True).to(device)
-        #self.form_factors = torch.nn.Parameter(init_form_factors(box_size,n_classes).to(device),requires_grad = True)
         self.rad_inds, self.rad_mask = radial_index_mask(oversampling*box_size)
         if A == None and B == None:
             self.B = torch.nn.Parameter(torch.linspace(0.0005*box_size,0.001*box_size,n_classes).to(device),requires_grad = True)
@@ -397,14 +348,7 @@ def fourier_crop(img,oversampling):
     out = img[...,s//2-s//(2*oversampling):s//2+s//(2*oversampling),s//2-s//(2*oversampling):s//2+s//(2*oversampling)]
     out = torch.fft.fftshift(out,[-1,-2])
     return out
-    
 
-def init_form_factors(box_size,n_classes):
-    x = torch.linspace(0,1,box_size)
-    sigma = torch.linspace(0.03,0.3,n_classes)
-    y = torch.exp(torch.stack(n_classes*[-x],1)/sigma)
-    return y.movedim(0,1)
-    
     
 def radial_index_mask(box_size,ang_pix=None):
     if ang_pix:
@@ -869,14 +813,6 @@ def RadialAvgProfile(F1,batch_reduce = None):
     return Prof
 
 
-
-
-        
-
-
-
-
-
 def fourier_shift_2d(
         grid_ft,
         xshift,
@@ -910,7 +846,6 @@ def fourier_shift_2d(
     return ar - bi + 1j * (ab_ri - ar - bi)
 
 
-
 def FlipZ(F1):
     Fz = torch.flip(F1,[-3])
     return(Fz)
@@ -931,10 +866,6 @@ def PowerSpec(F1,batch_reduce = None):
         p_s = scatter(torch.abs(F1.flatten(start_dim=-3))**2,R.flatten(),reduce = 'sum')
     return p_s[:end_ind],res[0]
 
-
-        
-    
-    
 
 def FSC(F1,F2,ang_pix = 1, visualize = False):
     device = F1.device
@@ -975,10 +906,6 @@ def FSC(F1,F2,ang_pix = 1, visualize = False):
         plt.xticks(torch.arange(start=0,end = end_ind,step = 10),labels = np.round(res[torch.arange(start=0,end = end_ind,step = 10)].numpy(),1))
         plt.show()
     return FSC[0:end_ind],res
-
-
-
-
 
 
 
@@ -1035,8 +962,6 @@ def add_weight_decay(model, weight_decay=1e-5):
     return [
         {'params': no_decay, 'weight_decay': 0.},
         {'params': decay, 'weight_decay': weight_decay}]
-
-
 
 
 def pdb2points(name,random = False):
