@@ -26,6 +26,7 @@ import mrcfile
 from voxelium.base.particle_image_preprocessor import ParticleImagePreprocessor
 from voxelium.relion import RelionDataset
 from voxelium.base.star_file import load_star
+from scipy.special import comb
 
 '-----------------------------------------------------------------------------'
 'CTF and Loss Functions'
@@ -46,7 +47,6 @@ def Fourier_loss(x,y,ctf,W=None,sig = None):
         pass
     else:
         x = torch.fft.fft2(torch.fft.fftshift(x,dim = [-1,-2]),dim=[-1,-2],norm = 'ortho')
-    N = x.shape[-1]
     y = torch.fft.fft2(torch.fft.fftshift(y,dim = [-1,-2]),dim=[-1,-2],norm = 'ortho')
     x = torch.multiply(x,ctf)
     if W != None:
@@ -167,8 +167,8 @@ def neighbour_activation(v):
     return x1+x2
 
 def distance_activation(d,distance):
-    x = torch.zeros_like(d)
-    x1 = torch.clamp(d,max = distance)
+    # x = torch.zeros_like(d)
+    # x1 = torch.clamp(d,max = distance)
     x2 = torch.clamp(d,min = distance,max = distance+0.5*distance)
     #x1 = distance-x1
     #x1 = torch.nn.ReLU(x1)+1
@@ -189,7 +189,7 @@ class point_projection(nn.Module):
 
     def forward(self,p,rr):
         device = p.device
-        batch_size = rr.shape[0]
+        #batch_size = rr.shape[0]
         #yaw = rr[:,1:2]+np.pi
         #pitch = -rr[:,0:1]
         #roll = rr[:,2:3]+np.pi
@@ -429,7 +429,7 @@ def initialize_dataset(input_arg,circular_mask_thickness,preload,part_diam=None)
     else:
         if part_diam > max_diameter_ang:
             print(
-                f"WARNING: Specified particle diameter {round(args.particle_diameter)} angstrom is too large\n"
+                f"WARNING: Specified particle diameter {round(part_diam)} angstrom is too large\n"
                 f" Assigning a diameter of {round(max_diameter_ang)} angstrom"
             )
             diameter_ang = max_diameter_ang
@@ -909,8 +909,8 @@ def FSC(F1,F2,ang_pix = 1, visualize = False):
 
 
 
-def make_color_map(p,mean_dist,kernel,box_size,device):
-    p2V = points2volume(box_size,device,kernel)
+def make_color_map(p,mean_dist,kernel,box_size,device,n_classes):
+    p2V = points2mult_volume(box_size, n_classes)
     p = p.unsqueeze(0)
     mean_dist = mean_dist.unsqueeze(0).to(device)
     Cmap = p2V(p.expand(2,-1,-1),mean_dist.expand(2,-1)).to(device)
