@@ -1,0 +1,6 @@
+Plan for CLI users
+
+- learn forward model
+- explore latent space of forward model
+- learn inverse model
+- perform deformable backprojection

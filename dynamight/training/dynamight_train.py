@@ -17,8 +17,8 @@ import mrcfile
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.nn import knn_graph, radius_graph
-from ..data.handlers.particle_image_preprocessor import ParticleImagePreprocessor
-from ..data.handlers.io_logger import IOLogger
+from data.handlers.particle_image_preprocessor import ParticleImagePreprocessor
+from data.handlers.io_logger import IOLogger
 from ..utils.utils_new import compute_threshold, initialize_consensus, initialize_dataset
 from ..models.networks_new import *
 from coarse_grain import *
@@ -35,7 +35,7 @@ parser.add_argument('input', help='input job (job directory or optimizer-file)',
 parser.add_argument('log_dir', type=str, metavar='log_dir',
                     help='path to save model checkpoints and intermediate outputs')
 parser.add_argument('--ini_model', type=str,
-                    help='initial model from prior reconstruction. If not provided the locations of the gaussians are randomly placed in the center of the box. If not provided, the number of consensus epochs (--cons) must be higher')
+                    help='initial model from prior deformable_backprojection. If not provided the locations of the gaussians are randomly placed in the center of the box. If not provided, the number of consensus epochs (--cons) must be higher')
 parser.add_argument('--batch_size', type=int, default=100, help='Batch size for Adam optimization')
 parser.add_argument('--overwrite', action='store_true')
 parser.add_argument('--gpu', dest='gpu', type=str, default="-1", help='gpu to use')
@@ -54,7 +54,7 @@ parser.add_argument('--n_layers', type=int, default=5,
 parser.add_argument('--n_neurons', type=int, default=32,
                     help='Number of neurons in each layer in the deformation model')
 parser.add_argument('--cons', type=int, default=None,
-                    help='Number of epochs for initial consensus reconstruction in the beginning of training. Not needed if initialization is provided')
+                    help='Number of epochs for initial consensus deformable_backprojection in the beginning of training. Not needed if initialization is provided')
 parser.add_argument('--particle_diameter', help='size of circular mask (ang)', type=int,
                     default=None)
 parser.add_argument('--circular_mask_thickness', help='thickness of mask (ang)', type=int,
@@ -572,7 +572,7 @@ if args.random_half:
                 z = mu + torch.exp(0.5 * logsigma) * torch.randn_like(mu)
                 z_in = [z]
 
-                if epoch < consensus and learn_consensus == True:  # Set latent code for consensus reconstruction to zero
+                if epoch < consensus and learn_consensus == True:  # Set latent code for consensus deformable_backprojection to zero
                     Proj, P, PP, n_points = cons_model(r, shift)
                     d_points = torch.zeros_like(n_points)
                 else:
@@ -647,7 +647,7 @@ if args.random_half:
                 z = mu + torch.exp(0.5 * logsigma) * torch.randn_like(mu)
                 z_in = [z]
 
-                if epoch < consensus and learn_consensus == True:  # Set latent code for consensus reconstruction to zero
+                if epoch < consensus and learn_consensus == True:  # Set latent code for consensus deformable_backprojection to zero
                     Proj, P, PP, n_points = cons_model(r, shift)
                     d_points = torch.zeros_like(n_points)
                 else:
@@ -716,7 +716,7 @@ if args.random_half:
             z = mu + torch.exp(0.5 * logsigma) * torch.randn_like(mu)
             z_in = [z]
 
-            if epoch < consensus and learn_consensus == True:  # Set latent code for consensus reconstruction to zero
+            if epoch < consensus and learn_consensus == True:  # Set latent code for consensus deformable_backprojection to zero
                 # Proj, P, PP, n_points = cons_model(r,shift)
                 # d_points = torch.zeros_like(n_points)
                 Proj, P, PP, n_points, d_points = deformation_half1(z_in, r,
@@ -821,7 +821,7 @@ if args.random_half:
 
             z_in = [z]
 
-            if epoch < consensus and learn_consensus == True:  # Set latent code for consensus reconstruction to zero
+            if epoch < consensus and learn_consensus == True:  # Set latent code for consensus deformable_backprojection to zero
                 # Proj, P, PP, n_points = cons_model(r,shift)
                 # d_points = torch.zeros_like(n_points)
                 # d_points2 = torch.zeros_like(n_points)

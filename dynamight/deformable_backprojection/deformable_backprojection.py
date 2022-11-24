@@ -6,19 +6,11 @@ Created on Thu Aug 18 11:11:04 2022
 @author: schwab
 """
 
-import torch
 import argparse
-import numpy as np
-import mrcfile
-import torch.nn.functional as F
-from ..data.handlers.particle_image_preprocessor import ParticleImagePreprocessor
-from ..data.handlers.grid import idht, rescale_real
-from ..data.dataloaders import RelionDataset
-from ..data.handlers.io_logger import IOLogger
-from torch.utils.data import DataLoader, TensorDataset
-import umap
-from ..utils.utils_new import *
-from ..models.networks_new import *
+from data.handlers.particle_image_preprocessor import ParticleImagePreprocessor
+from torch.utils.data import DataLoader
+from dynamight.utils.utils_new import *
+
 from tqdm import tqdm
 import scipy
 
@@ -44,7 +36,7 @@ parser.add_argument('--filter', help='Choice of filter to use in the filtered ba
 parser.add_argument('--random_half_decoder',
                     help='reconstruct half sets with decoders trained on random half sets',
                     action='store_true')
-parser.add_argument('--reconstruction_area', help='directory of mask file for local reconstruction',
+parser.add_argument('--reconstruction_area', help='directory of mask file for local deformable_backprojection',
                     type=str)
 parser.add_argument('--noise', help='add noise in training of the inverse deformation field',
                     type=str, default=False)
@@ -428,7 +420,7 @@ def get_grad_from_field(disp, box_size):
 
 
 def deform_volume_new(V, ess_grid, out_grid, defo, box_size):
-    # input Volume, integer grid points for reconstruction, outer grid points which stay the same, raw deformation vector
+    # input Volume, integer grid points for deformable_backprojection, outer grid points which stay the same, raw deformation vector
     Vnew = torch.zeros_like(V)
     V = V.movedim(1, 2).movedim(3, 2).movedim(2, 1)
     batch_size = defo.shape[0]
@@ -945,7 +937,7 @@ bp_imgs = torch.zeros(1)
 if args.random_half:
     his = []
     rel_inds = []
-    print('start reconstruction of half 1')
+    print('start deformable_backprojection of half 1')
     print('computing relevant tiles')
     for j in tqdm(range(gxy.shape[0])):
         tile_indices = latent_indices_half1[latent_points_half1 == j]
@@ -1123,7 +1115,7 @@ if args.random_half:
     his = []
     rel_inds = []
 
-    print('start reconstruction of half 2')
+    print('start deformable_backprojection of half 2')
     print('computing relevant tiles')
     for j in tqdm(range(gxy.shape[0])):
         tile_indices = latent_indices_half2[latent_points_half2 == j]

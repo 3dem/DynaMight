@@ -3,7 +3,7 @@ import argparse
 import numpy as np
 import mrcfile
 import torch.nn.functional as F
-from ..data.handlers.particle_image_preprocessor import ParticleImagePreprocessor
+from data.handlers.particle_image_preprocessor import ParticleImagePreprocessor
 from torch.utils.data import DataLoader
 
 from ..utils.utils_new import initialize_dataset, pdb2points, bernstein_poly, bezier_curve, make_equidistant

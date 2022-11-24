@@ -295,7 +295,7 @@ def initialize_consensus(model, ref, logdir,lr = 0.001, N_epochs = 300,mask = No
     z0 = torch.zeros(2, 2)
     r0 = torch.zeros(2, 3)
     t0 = torch.zeros(2,2)
-    print('Initializing gaussian positions from reference reconstruction')
+    print('Initializing gaussian positions from reference deformable_backprojection')
     for i in tqdm(range(N_epochs)):
         model_optimizer.zero_grad()
         V = model.volume(r0.to(device),t0.to(device)).float()
