@@ -663,7 +663,6 @@ for epochs in range(N_inv):
             c_pos = inv_half1(mu_in, pos)
 
         if args.noise == 'True':
-            # loss = torch.sum((c_pos-torch.cat([(cons_model.pos.to(device)+noise_real),out_points],0))**2)
             loss = torch.sum((c_pos - cons_model.pos.to(device) + noise_real) ** 2)
         else:
             loss = torch.sum((c_pos - cons_model.pos.to(device)) ** 2)
@@ -731,10 +730,6 @@ for epochs in range(N_inv):
         inv_loss_h2 += loss.item()
     losslist[epochs, 1] = inv_loss_h2
 
-    # plt.plot(losslist[:,0].cpu())
-    # plt.show()
-    # plt.plot(losslist[:,1].cpu())
-    # plt.show()
 
 del mu_in_tot, pos_tot
 
