@@ -10,6 +10,9 @@ import argparse
 import os
 import sys
 import time
+from pathlib import Path
+from typing import Optional
+
 import numpy as np
 import torch
 import mrcfile
@@ -17,8 +20,8 @@ import mrcfile
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.nn import knn_graph, radius_graph
-from data.handlers.particle_image_preprocessor import ParticleImagePreprocessor
-from data.handlers.io_logger import IOLogger
+from dynamight.data.handlers import ParticleImagePreprocessor
+from dynamight.data.handlers import IOLogger
 from ..utils.utils_new import compute_threshold, initialize_consensus, initialize_dataset
 from ..models.networks_new import *
 from coarse_grain import *
@@ -26,6 +29,39 @@ from coarse_grain import *
 
 
 import warnings
+from typer import Option
+
+from .._cli import cli
+
+
+@cli.command()
+def optimize_deformations(
+    refinement_star_file: Path,
+    output_directory: Path,
+    initial_model: Optional[Path] = None,
+    mask_file: Optional[Path] = None,
+    checkpoint_file: Optional[Path] = None,
+    n_gaussians: int = 20000,
+    n_gaussian_widths: int = 5,
+    n_latent_dimensions: int = 2,
+    n_positional_encoding_dimensions: int = 10,
+    n_linear_layers: int = 8,
+    n_neurons_per_layer: int = 32,
+    n_warmup_epochs: int = 0,
+    consensus_update_rate: float = 1,
+    regularisation_factor: float = 0.2,
+    apply_bfactor: float = 0,
+    particle_diameter: Optional[float] = None,
+    soft_edge_width: float = 20,
+    batch_size: int = 100,
+    gpu_id: int = 0,
+    n_epochs: int = Option(200),
+    n_threads: int = 8,
+    preload_images: bool = True,
+    n_workers: int = 8,
+):
+    output_directory.mkdir(exist_ok=True, parents=True)
+    # todo: implement
 
 warnings.simplefilter('error', UserWarning)
 
@@ -37,11 +73,10 @@ parser.add_argument('log_dir', type=str, metavar='log_dir',
 parser.add_argument('--ini_model', type=str,
                     help='initial model from prior deformable_backprojection. If not provided the locations of the gaussians are randomly placed in the center of the box. If not provided, the number of consensus epochs (--cons) must be higher')
 parser.add_argument('--batch_size', type=int, default=100, help='Batch size for Adam optimization')
-parser.add_argument('--overwrite', action='store_true')
 parser.add_argument('--gpu', dest='gpu', type=str, default="-1", help='gpu to use')
 parser.add_argument('--random_seed', type=int, default='98426')
 parser.add_argument('--max_epochs', dest='max_epochs', type=int, default=int(200),
-                    help='Total number of training epochs')
+                    help='Total number of deformations epochs')
 parser.add_argument('--pytorch_threads', type=int, default=8)
 parser.add_argument('--preload', action='store_true')
 parser.add_argument('--dataloader_threads', type=int, default='8')
@@ -54,7 +89,7 @@ parser.add_argument('--n_layers', type=int, default=5,
 parser.add_argument('--n_neurons', type=int, default=32,
                     help='Number of neurons in each layer in the deformation model')
 parser.add_argument('--cons', type=int, default=None,
-                    help='Number of epochs for initial consensus deformable_backprojection in the beginning of training. Not needed if initialization is provided')
+                    help='Number of epochs for initial consensus deformable_backprojection in the beginning of deformations. Not needed if initialization is provided')
 parser.add_argument('--particle_diameter', help='size of circular mask (ang)', type=int,
                     default=None)
 parser.add_argument('--circular_mask_thickness', help='thickness of mask (ang)', type=int,
@@ -72,7 +107,7 @@ parser.add_argument('--substitute',
 parser.add_argument('--random_half',
                     help='Use two random halves for learning the gaussian displacements',
                     action='store_true')
-parser.add_argument('--checkpoint', help='Start network training from pretrained network', type=str)
+parser.add_argument('--checkpoint', help='Start network deformations from pretrained network', type=str)
 parser.add_argument('--model', help='atomic model for regularization of deformation if available',
                     action='append', default=None)
 parser.add_argument('--calibrate_loss_weights', help='if true prior-data weighting is applied',
@@ -141,7 +176,7 @@ shifts = torch.nn.Parameter(torch.tensor(shifts, requires_grad=True).to(device))
 shifts_op = torch.optim.Adam([shifts], lr=1e-3)
 
 '--------------------------------------------------------------------------------------------'
-'Initialize training dataloaders for random halves and regularization parameter calibration'
+'Initialize deformations dataloaders for random halves and regularization parameter calibration'
 '--------------------------------------------------------------------------------------------'
 
 if args.calibrate_loss_weights:

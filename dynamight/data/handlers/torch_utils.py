@@ -179,7 +179,7 @@ def optimizer_set_learning_rate(optimizer, learning_rate):
 
 def plot_grad_flow(named_parameters):
     """
-    Plots the gradients flowing through different layers in the net during training.
+    Plots the gradients flowing through different layers in the net during deformations.
     Can be used for checking for possible gradient vanishing / exploding problems.
 
     Usage: Plug this function in Trainer class after loss.backwards() as

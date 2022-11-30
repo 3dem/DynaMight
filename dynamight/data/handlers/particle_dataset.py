@@ -14,7 +14,7 @@ from scipy.ndimage import shift
 
 import torch
 from torch.utils.data import Dataset
-from voxelium.base.ctf import ContrastTransferFunction
+from .ctf import ContrastTransferFunction
 
 
 class ParticleDataset(Dataset):

@@ -14,8 +14,8 @@ import torch
 import torch.nn as nn
 import torch.fft
 import torch.nn.functional as F
-from torch_geometric.nn import radius_graph, knn_graph
-from torch_scatter import scatter
+# from torch_geometric.nn import radius_graph, knn_graph
+# from torch_scatter import scatter
 import umap
 from sklearn.decomposition import PCA
 from tsnecuda import TSNE
@@ -23,9 +23,9 @@ from Bio.PDB import PDBParser, MMCIFParser, PDBIO
 from Bio.PDB.mmcifio import MMCIFIO
 from tqdm import tqdm
 import mrcfile
-from voxelium.base.particle_image_preprocessor import ParticleImagePreprocessor
-from voxelium.relion import RelionDataset
-from voxelium.base.star_file import load_star
+from ..data.handlers.particle_image_preprocessor import ParticleImagePreprocessor
+from ..data.dataloaders.relion import RelionDataset
+from ..data.handlers.star_file import load_star
 from scipy.special import comb
 
 '-----------------------------------------------------------------------------'

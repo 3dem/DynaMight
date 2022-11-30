@@ -3,10 +3,10 @@ import argparse
 import numpy as np
 import mrcfile
 import torch.nn.functional as F
-from data.handlers.particle_image_preprocessor import ParticleImagePreprocessor
+from dynamight.data.handlers import ParticleImagePreprocessor
 from torch.utils.data import DataLoader
 
-from ..utils.utils_new import initialize_dataset, pdb2points, bernstein_poly, bezier_curve, make_equidistant
+from ..utils.utils_new import initialize_dataset, pdb2points, bezier_curve, make_equidistant
 
 import matplotlib.pylab as plt
 

@@ -10,7 +10,7 @@ import numpy as np
 
 import torch
 
-from voxelium.base.grid import dht, smooth_circular_mask, smooth_square_mask, \
+from .grid import dht, smooth_circular_mask, smooth_square_mask, \
     get_spectral_indices, get_spectral_avg, spectrum_to_grid
 
 Tensor = TypeVar('torch.tensor')
