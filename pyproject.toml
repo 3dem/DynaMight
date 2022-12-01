@@ -35,7 +35,7 @@ dependencies = [
     "tsnecuda",
     "tqdm",
     "tensorboard",
-    "torch-geometric",
+#    "torch-geometric",
 #    "torch-sparse",
 #    "torch-scatter",
     "typer",
