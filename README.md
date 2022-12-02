@@ -6,4 +6,4 @@
 [![CI](https://github.com/schwabjohannes/dynamight/actions/workflows/ci.yml/badge.svg)](https://github.com/schwabjohannes/dynamight/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/schwabjohannes/dynamight/branch/main/graph/badge.svg)](https://codecov.io/gh/schwabjohannes/dynamight)
 
-Estimating dynamics from cryo-EM images
+Estimating dynamics from cryo-EM images and use them to improve your map (maybe)
