@@ -14,8 +14,8 @@ import torch
 import torch.nn as nn
 import torch.fft
 import torch.nn.functional as F
-from torch_geometric.nn import radius_graph, knn_graph
-from torch_scatter import scatter
+#from torch_geometric.nn import radius_graph, knn_graph
+#from torch_scatter import scatter
 import umap
 from sklearn.decomposition import PCA
 from tsnecuda import TSNE
@@ -27,6 +27,7 @@ from ..data.handlers.particle_image_preprocessor import ParticleImagePreprocesso
 from ..data.dataloaders.relion import RelionDataset
 from ..data.handlers.star_file import load_star
 from scipy.special import comb
+from sklearn.neighbors import kneighbors_graph, radius_neighbors_graph
 
 '-----------------------------------------------------------------------------'
 'CTF and Loss Functions'
@@ -71,10 +72,12 @@ def geometric_loss(pos, box_size, ang_pix, dist, mode, deformation=None, graph1=
 
     if len(pos.shape) == 2:
         if neighbour == True:
-            gr = radius_graph(pos, dist+0.5, num_workers=8)
+            #gr = radius_graph(pos, dist+0.5, num_workers=8)
+            gr = my_radius_graph(pos, dist+0.5, workers=8)
             dis = torch.pow(1e-7+torch.sum((pos[gr[0]]-pos[gr[1]])**2, 1), 0.5)
             dis2 = distance_activation(dis, dist)
-            d = scatter(dis2, gr[0], reduce='sum')
+            #d = scatter(dis2, gr[0], reduce='sum')
+            d = scatter_sub(dis2, gr[0])
             val = neighbour_activation(d)
             neighbour_loss = torch.mean(val)
         else:
@@ -83,14 +86,16 @@ def geometric_loss(pos, box_size, ang_pix, dist, mode, deformation=None, graph1=
             try:
                 distance_loss = torch.mean(gaussian_distance(dis, dist))
             except:
-                gr = radius_graph(pos, distance+0.5, num_workers=8)
+                #gr = radius_graph(pos, distance+0.5, num_workers=8)
+                gr = my_radius_graph(pos, distance+0.5, workers=8)
                 dis = torch.pow(
                     1e-7+torch.sum((pos[gr[0]]-pos[gr[1]])**2, 1), 0.5)
                 distance_loss = torch.mean(gaussian_distance(dis, dist))
         else:
             distance_loss = torch.zeros(1).to(pos.device)
         if outlier == True:
-            gr2 = knn_graph(pos, 1, num_workers=8)
+            #gr2 = knn_graph(pos, 1, num_workers=8)
+            gr2 = my_knn_graph(pos, 1, workers=8)
             out_dis = torch.pow(
                 1e-7+torch.sum((pos[gr2[0]]-pos[gr2[1]])**2, 1), 0.5)
             out_dis = torch.clamp(out_dis, min=dist+0.2)
@@ -111,7 +116,8 @@ def geometric_loss(pos, box_size, ang_pix, dist, mode, deformation=None, graph1=
             dis = torch.pow(
                 1e-7+torch.sum((pos[:, graph1[0]]-pos[:, graph1[1]])**2, 2), 0.5)
             dis2 = distance_activation(dis, dist)
-            d = scatter(dis2, graph1[0], reduce='sum')
+            #d = scatter(dis2, graph1[0], reduce='sum')
+            d = scatter_sub(dis2, graph1[0])
             val = neighbour_activation(d)
             #neighbour_loss = torch.mean(torch.sum(val,1)/pos.shape[1])
             neighbour_loss = torch.mean(torch.mean(val, 1))
@@ -303,7 +309,7 @@ class points2mult_image(nn.Module):
         return im
 
 
-def initialize_consensus(model, ref, logdir, lr=0.001, N_epochs=300, mask=None):
+def initialize_consensus(model, ref, logdir, lr=0.001, n_epochs=300, mask=None):
     device = model.device
     model_params = model.parameters()
     model_optimizer = torch.optim.Adam(model_params, lr=lr)
@@ -311,7 +317,7 @@ def initialize_consensus(model, ref, logdir, lr=0.001, N_epochs=300, mask=None):
     r0 = torch.zeros(2, 3)
     t0 = torch.zeros(2, 2)
     print('Initializing gaussian positions from reference deformable_backprojection')
-    for i in tqdm(range(N_epochs)):
+    for i in tqdm(range(n_epochs)):
         model_optimizer.zero_grad()
         V = model.volume(r0.to(device), t0.to(device)).float()
         #fsc,res=FSC(ref,V[0],1,visualize = False)
@@ -536,10 +542,14 @@ def frc(x, y, ctf, batch_reduce='sum'):
     X, Y = torch.meshgrid(ind, ind)
     R = torch.cat(batch_size*[torch.fft.fftshift(torch.round(
         torch.pow(X**2+Y**2, 0.5)).long()).unsqueeze(0)], 0).to(device)
-    num = scatter(torch.real(x*torch.conj(y)).flatten(start_dim=-2),
-                  R.flatten(start_dim=-2), reduce='mean')
-    den = torch.pow(scatter(torch.abs(x.flatten(start_dim=-2))**2, R.flatten(start_dim=-2), reduce='mean')
-                    * scatter(torch.abs(y.flatten(start_dim=-2))**2, R.flatten(start_dim=-2), reduce='mean'), 0.5)
+    # num = scatter(torch.real(x*torch.conj(y)).flatten(start_dim=-2),
+    #              R.flatten(start_dim=-2), reduce='mean')
+    num = scatter_mean_sub(torch.real(x*torch.conj(y)).flatten(start_dim=-2),
+                           R.flatten(start_dim=-2))
+    # den = torch.pow(scatter(torch.abs(x.flatten(start_dim=-2))**2, R.flatten(start_dim=-2), reduce='mean')
+    #                * scatter(torch.abs(y.flatten(start_dim=-2))**2, R.flatten(start_dim=-2), reduce='mean'), 0.5)
+    den = torch.pow(scatter_mean_sub(torch.abs(x.flatten(start_dim=-2))**2, R.flatten(start_dim=-2))
+                    * scatter_mean_sub(torch.abs(y.flatten(start_dim=-2))**2, R.flatten(start_dim=-2)), 0.5)
     FRC = num/(den+eps)
     FRC = torch.sum(num/den, 0)
 
@@ -608,7 +618,7 @@ def tensor_scatter(x, y, c, s=0.1, alpha=0.5, cmap='jet'):
     matplotlib.use('pdf')
     fig, ax = plt.subplots(figsize=(5, 5))
 
-    ax.scatter(x, y, alpha=alpha, s=s, c=c, cmap=cmap)
+    ax.scatter(x, y, alpha=alpha, s=s, c=c)
     plt.axis("off")
     plt.subplots_adjust(hspace=0, wspace=0)
     ax.set_axis_off()
@@ -659,7 +669,7 @@ def visualize_latent(z, c, s=0.1, alpha=0.5, cmap='jet', method='umap'):
 
     fig, ax = plt.subplots(figsize=(5, 5))
     s = 40000/z.shape[0]
-    ax.scatter(embed[:, 0], embed[:, 1], alpha=alpha, s=s, c=c, cmap=cmap)
+    ax.scatter(embed[:, 0], embed[:, 1], alpha=alpha, s=s, c=c)
     plt.axis("off")
     plt.subplots_adjust(hspace=0, wspace=0)
     ax.set_axis_off()
@@ -786,8 +796,10 @@ def power_spec2(F1, batch_reduce=None):
     X, Y = torch.meshgrid(ind, ind)
     R = torch.fft.fftshift(torch.round(torch.pow(X**2+Y**2, 0.5)).long())
     res = torch.arange(start=0, end=end_ind)**2,
-    p_s = scatter(torch.abs(F1.flatten(start_dim=-2)**2),
-                  R.flatten().to(F1.device), reduce='mean')
+    # p_s = scatter(torch.abs(F1.flatten(start_dim=-2)**2),
+    #              R.flatten().to(F1.device), reduce='mean')
+    p_s = scatter_mean_sub(torch.abs(F1.flatten(start_dim=-2)**2),
+                           R.flatten().to(F1.device))
     if batch_reduce == 'mean':
         p_s = torch.mean(p_s, 0)
     p = p_s[R]
@@ -805,8 +817,10 @@ def radial_avg2(F1, batch_reduce=None):
     X, Y = torch.meshgrid(ind, ind)
     R = torch.fft.fftshift(torch.round(torch.pow(X**2+Y**2, 0.5)).long())
     res = torch.arange(start=0, end=end_ind)**2,
-    p_s = scatter(torch.abs(F1.flatten(start_dim=-2)),
-                  R.flatten().to(F1.device), reduce='mean')
+    # p_s = scatter(torch.abs(F1.flatten(start_dim=-2)),
+    #               R.flatten().to(F1.device), reduce='mean')
+    p_s = scatter_mean_sub(torch.abs(F1.flatten(start_dim=-2)),
+                           R.flatten().to(F1.device))
     if batch_reduce == 'mean':
         p_s = torch.mean(p_s, 0)
     p = p_s[R]
@@ -858,8 +872,10 @@ def RadialAvgProfile(F1, batch_reduce=None):
     res = torch.arange(start=0, end=end_ind)**2,
 
     if len(F1.shape) == 3:
-        p_s = scatter(torch.abs(F1.flatten(start_dim=-3)),
-                      R.flatten(), reduce='mean')
+        # p_s = scatter(torch.abs(F1.flatten(start_dim=-3)),
+        #               R.flatten(), reduce='mean')
+        p_s = scatter_mean_sub(torch.abs(F1.flatten(start_dim=-3)),
+                               R.flatten())
     Prof = torch.zeros_like(R).float().to(device)
     Prof[R] = p_s[R]
 
@@ -921,8 +937,10 @@ def PowerSpec(F1, batch_reduce=None):
     res = torch.arange(start=0, end=end_ind)**2,
 
     if len(F1.shape) == 3:
-        p_s = scatter(torch.abs(F1.flatten(start_dim=-3))
-                      ** 2, R.flatten(), reduce='sum')
+        # p_s = scatter(torch.abs(F1.flatten(start_dim=-3))
+        #              ** 2, R.flatten(), reduce='sum')
+        p_s = scatter_sub(torch.abs(F1.flatten(start_dim=-3))
+                          ** 2, R.flatten())
     return p_s[:end_ind], res[0]
 
 
@@ -1369,3 +1387,41 @@ def make_equidistant(x, y, N):
     plt.show()
     frac = np.maximum(int(np.round(n_points.shape[0] / N)), 1)
     return n_points[::frac, :], points
+
+
+def my_knn_graph(X, k, workers):
+    dev = X.device
+    s_m = kneighbors_graph(X.cpu(), k, n_jobs=workers)
+    s_m_coo = s_m.tocoo()
+    gr0 = torch.tensor(s_m_coo.col)
+    gr1 = torch.tensor(s_m_coo.row)
+    # gr0 = torch.tensor(s_m.indices)
+    # gr1 = torch.arange(0, X.shape[0]).repeat_interleave(2, dim=0)
+    gr = torch.stack([gr0, gr1], 0).long()
+    return gr.to(dev)
+
+
+def my_radius_graph(X, r, workers):
+    dev = X.device
+    s_m = radius_neighbors_graph(X.cpu(), r.cpu(), n_jobs=workers)
+    s_m_coo = s_m.tocoo()
+    gr0 = torch.tensor(s_m_coo.col)
+    gr1 = torch.tensor(s_m_coo.row)
+    gr = torch.stack([gr0, gr1], 0).long()
+    return gr.to(dev)
+
+
+def scatter_sub(src, inds, dim=-1):
+    inds = inds.expand(src.size())
+    size = list(src.size())
+    size[dim] = int(inds.max())+1
+    out = torch.zeros(size, dtype=src.dtype, device=src.device)
+    out.scatter_add_(dim, inds, src)
+    return out.scatter_add_(dim, inds, src)
+
+
+def scatter_mean_sub(src, inds, dim=-1):
+    out_sum = scatter_sub(src, inds, dim)
+    ones = torch.ones(inds.size(), dtype=src.dtype, device=src.device)
+    count = scatter_sub(ones, inds, dim)
+    return out_sum/count

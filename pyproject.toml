@@ -35,9 +35,8 @@ dependencies = [
     "tsnecuda",
     "tqdm",
     "tensorboard",
-#    "torch-geometric",
-#    "torch-sparse",
-#    "torch-scatter",
+    "PyQt5",
+    #"torch-scatter",
     "typer",
     "biopython",
 ]

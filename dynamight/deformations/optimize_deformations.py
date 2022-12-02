@@ -18,19 +18,19 @@ import mrcfile
 
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from torch_geometric.nn import knn_graph, radius_graph
-from dynamight.data.handlers import ParticleImagePreprocessor
-from dynamight.data.handlers import IOLogger
-from .models.consensus import ConsensusModel
-from .models.decoder import DisplacementDecoder
-from .model.encoder import HetEncoder
-from .models.blocks import LinearBlock
-from .models.pose import PoseModule
+#from torch_geometric.nn import knn_graph, radius_graph
+from ..data.handlers.particle_image_preprocessor import ParticleImagePreprocessor
+from ..data.handlers.io_logger import IOLogger
+from ..models.consensus import ConsensusModel
+from ..models.decoder import DisplacementDecoder
+from ..models.encoder import HetEncoder
+from ..models.blocks import LinearBlock
+from ..models.pose import PoseModule
 from ..utils.utils_new import compute_threshold, initialize_consensus, initialize_dataset, load_models, add_weight_decay, \
     fourier_loss, power_spec2, radial_avg2, geometric_loss, frc, reset_all_linear_layer_weights, graph2bild, generate_form_factor, \
-    prof2radim, visualize_latent, tensor_plot, tensor_imshow, tensor_scatter, tensor_hist, apply_ctf, points2xyz
-from coarse_grain import optimize_coarsegraining
-from sklearn.neighbors import kneighbors_graph
+    prof2radim, visualize_latent, tensor_plot, tensor_imshow, tensor_scatter, tensor_hist, apply_ctf, points2xyz, my_knn_graph, my_radius_graph
+#from coarse_grain import optimize_coarsegraining
+
 # TODO: add coarse graining to GitHub
 
 
@@ -44,10 +44,12 @@ def optimize_deformations(
     refinement_star_file: Path,
     output_directory: Path,
     initial_model: Optional[Path] = None,
+    initial_threshold: float = 0.1,
+    initial_resolution: int = 8,
     mask_file: Optional[Path] = None,
     checkpoint_file: Optional[Path] = None,
     n_gaussians: int = 20000,
-    n_gaussian_widths: int = 5,
+    n_gaussian_widths: int = 1,
     n_latent_dimensions: int = 2,
     n_positional_encoding_dimensions: int = 10,
     n_linear_layers: int = 8,
@@ -72,13 +74,19 @@ def optimize_deformations(
     #       add argument for free gaussians and mask
     #       add argument intial_resolution
     #       implement threshold computation
-    #       change knn_graph and radius_graph to sklearn functions
 
     add_free_gaussians = 0
     log_dir = output_directory
     summ = SummaryWriter(log_dir)
     torch.set_num_threads(n_threads)
     sys.stdout = IOLogger(os.path.join(log_dir, 'std.out'))
+
+    if initial_model == None:
+        ini_mode = 'nothing'
+    elif str(initial_model).endswith('.mrc'):
+        ini_mode = 'map'
+    else:
+        ini_mode = 'model'
 
     if gpu_id == "-1":
         print("Training on available device")
@@ -88,7 +96,7 @@ def optimize_deformations(
 
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
 
-    device = 'cuda:' + str(a) if gpu_id == "-1" else 'cuda:' + str(gpu_id)
+    device = 'cuda:' + str(gpu_id) if gpu_id == "-1" else 'cuda:' + str(gpu_id)
 
     print('Initializing the dataset')
 
@@ -181,21 +189,23 @@ def optimize_deformations(
     'Iniitialize gaussian model if pdb is provided'
     '--------------------------------------------------------------------'
 
-    if initial_model.endswith('.mrc') == False and initial_model != None:
+    if ini_mode == 'model':
         mode = 'model'
         cons_model, gr = optimize_coarsegraining(
-            initial_model, box_size, ang_pix, device, log_dir, n_gaussian_widths, add_free_gaussians, initial_resolution=8)
+            initial_model, box_size, ang_pix, device, str(log_dir), n_gaussian_widths, add_free_gaussians, initial_resolution=initial_resolution)
         cons_model.amp.requires_grad = True
         if consensus_update_rate == None:
             consensus_update_rate = 0
 
-    if initial_model.endswith('.mrc') or initial_model == None:
+    if ini_mode == 'map' or ini_mode == 'nothing':
         N_points = n_gaussians
 
     else:
         N_points = cons_model.pos.shape[0]
         n_gaussians = N_points
 
+    if ini_mode == 'nothing':
+        mode = 'density'
     '------------------------------------------------------------------'
     'Define learning parameters'
     '------------------------------------------------------------------'
@@ -227,7 +237,7 @@ def optimize_deformations(
     encoder_half1 = HetEncoder(box_size, latent_dim, 1).to(device)
     encoder_half2 = HetEncoder(box_size, latent_dim, 1).to(device)
 
-    if initial_model.endswith('.mrc'):
+    if ini_mode == 'map':
         mode = 'density'
         with mrcfile.open(initial_model) as mrc:
             Ivol = torch.tensor(mrc.data)
@@ -238,16 +248,16 @@ def optimize_deformations(
                 th = compute_threshold(Ivol)
                 print('Setting threshold for the initialization to:', th)
                 cons_model.initialize_points(
-                    Ivols.movedim(0, 2).movedim(0, 1), 0.425)
+                    Ivols.movedim(0, 2).movedim(0, 1), initial_threshold)
                 initialize_consensus(cons_model, Ivols.to(
-                    device), log_dir, n_epochs=50)
+                    device), str(log_dir), n_epochs=50)
             else:
                 th = compute_threshold(Ivol)
                 print('Setting threshold for the initialization to:', th)
                 cons_model.initialize_points(
-                    Ivol.movedim(0, 2).movedim(0, 1), 0.425)
+                    Ivol.movedim(0, 2).movedim(0, 1), initial_threshold)
                 initialize_consensus(cons_model, Ivol.to(
-                    device), log_dir, n_epochs=50)
+                    device), str(log_dir), n_epochs=50)
 
     if mask_file:
         with mrcfile.open(mask_file) as mrc:
@@ -307,7 +317,7 @@ def optimize_deformations(
     FRC_im = torch.ones(box_size, box_size)
 
     with torch.no_grad():
-        if initial_model.endswith('mrc') == False and initial_model != None:
+        if ini_mode == 'model':
             pos = cons_model.pos*box_size*ang_pix
             gr1 = gr
             gr2 = gr
@@ -320,17 +330,21 @@ def optimize_deformations(
         else:
             pos = cons_model.pos*box_size*ang_pix
             cons_positions = pos
-            grn = knn_graph(pos, 2, num_workers=8)
-            #grn = kneighbors_graph(pos,2,num_workers = 8)
+            #grn = knn_graph(pos, 2, num_workers=8)
+            grn = my_knn_graph(pos, 2, workers=8)
             mean_neighbour_dist = torch.mean(
                 torch.pow(torch.sum((pos[grn[0]]-pos[grn[1]])**2, 1), 0.5))
             print('mean distance in graph:', mean_neighbour_dist,
                   ';This distance is also used to construct the initial graph ')
             distance = mean_neighbour_dist
-            gr = radius_graph(pos, distance+distance/2, num_workers=8)
-            gr1 = radius_graph(cons_model.pos*ang_pix*box_size,
-                               distance+distance/2, num_workers=8)
-            gr2 = knn_graph(cons_model.pos, 1, num_workers=8)
+            #gr = radius_graph(pos, distance+distance/2, num_workers=8)
+            # gr1 = radius_graph(cons_model.pos*ang_pix*box_size,
+            #                   distance+distance/2, num_workers=8)
+            gr = my_radius_graph(pos, distance+distance/2, workers=8)
+            gr1 = my_radius_graph(cons_model.pos*ang_pix*box_size,
+                                  distance+distance/2, workers=8)
+            #gr2 = knn_graph(cons_model.pos, 1, num_workers=8)
+            gr2 = my_knn_graph(cons_model.pos, 1, workers=8)
             cons_dis = torch.pow(
                 torch.sum((cons_positions[gr1[0]]-cons_positions[gr1[1]])**2, 1), 0.5)
 
@@ -338,7 +352,6 @@ def optimize_deformations(
 
     half1_indices = []
     K = 0
-    print(deformation_half1.device)
 
     with torch.no_grad():
         print('Computing half-set indices')
@@ -357,15 +370,18 @@ def optimize_deformations(
         cons_optimizer = torch.optim.Adam(cons_params, lr=posLR)
     for epoch in range(n_epochs):
         mean_positions = torch.zeros_like(cons_model.pos, requires_grad=False)
-        if initial_model == None:
+        if ini_mode == 'nothing':
             cons_params = cons_model.parameters()
             cons_optimizer = torch.optim.Adam(cons_params, lr=posLR)
 
         with torch.no_grad():
-            if initial_model == None:
-                gr1 = radius_graph(cons_model.pos*ang_pix *
-                                   box_size, distance+distance/2, num_workers=8)
-                gr2 = knn_graph(cons_model.pos, 2, num_workers=8)
+            if ini_mode == 'nothing':
+                # gr1 = radius_graph(cons_model.pos*ang_pix *
+                #                   box_size, distance+distance/2, num_workers=8)
+                gr1 = my_radius_graph(cons_model.pos*ang_pix *
+                                      box_size, distance+distance/2, workers=8)
+                #gr2 = knn_graph(cons_model.pos, 2, num_workers=8)
+                gr2 = my_knn_graph(cons_model.pos, 2, workers=8)
                 pos = cons_model.pos*box_size*ang_pix
                 cons_dis = torch.pow(
                     torch.sum((pos[gr1[0]]-pos[gr1[1]])**2, 1), 0.5)
@@ -389,13 +405,14 @@ def optimize_deformations(
             else:
                 print(torch.abs(gr_diff), 'Gaussians added to the neighbour graph')
         except:
-            print('no graphs assigned yet')
+            pass
+
         angles_op.zero_grad()
         shifts_op.zero_grad()
         if epoch > 0:
             print('Epoch:', epoch, 'Epoch time:', epoch_t)
 
-        if epoch == consensus and initial_model != None:
+        if epoch == consensus and ini_mode != 'nothing':
             deformation_half1.i2F.A = torch.nn.Parameter(
                 cons_model.i2F.A.to(device), requires_grad=True)
             deformation_half1.i2F.B = torch.nn.Parameter(
@@ -411,7 +428,7 @@ def optimize_deformations(
             dec_half2_optimizer = torch.optim.Adam(dec_half2_params, lr=LR)
             cons_params = cons_model.parameters()
             cons_optimizer = torch.optim.Adam(cons_params, lr=LR)
-        elif epoch == consensus and initial_model == None:
+        elif epoch == consensus and ini_mode == 'nothing':
             deformation_half1.i2F.A = torch.nn.Parameter(
                 cons_model.i2F.A.to(device), requires_grad=True)
             deformation_half1.i2F.B = torch.nn.Parameter(
@@ -777,7 +794,6 @@ def optimize_deformations(
                 cons_optimizer.step()
 
             eval_t = time.time() - st
-            print('Epoch time:', eval_t)
             latent_space[sample["idx"].cpu().numpy()] = mu.detach().cpu()
             running_recloss_half2 += rec_loss.item()
             running_latloss_half2 += latent_loss.item()
@@ -805,7 +821,7 @@ def optimize_deformations(
         try:
             gr_old = gr1
         except:
-            print('no graphs available yet')
+            pass
 
         if epoch > (consensus-1) and consensus_update_rate != 0:
             mean_positions /= len(dataset)
@@ -922,24 +938,22 @@ def optimize_deformations(
             frc_both = frc_both[:box_size//2]
             mean_dist = mean_dist / latent_space.shape[0]
             pos = cons_model.pos*box_size*ang_pix
-            grn = knn_graph(pos, 2, num_workers=8)
+            #grn = knn_graph(pos, 2, num_workers=8)
+            grn = my_knn_graph(pos, 2, workers=8)
             N_graph
             mean_neighbour_dist = torch.mean(
                 torch.pow(torch.sum((pos[grn[0]]-pos[grn[1]])**2, 1), 0.5))
             print('mean distance in graph in Angstrom:', mean_neighbour_dist)
             distance = mean_neighbour_dist
-            #distance = 4
             displacement_variance_h1 /= len(dataset_half1)
             displacement_variance_h2 /= len(dataset_half2)
             D_var = torch.stack(
                 [displacement_variance_h1, displacement_variance_h2], 1)
-            print(mean_positions[0])
-            print(cons_model.pos[0])
-            print(deformation_half1.i2F.B, cons_model.i2F.B)
-            print(deformation_half1.i2F.A, cons_model.i2F.A)
-            if initial_model == None:
-                gr = radius_graph(pos, distance+distance/2, num_workers=8)
-            graph2bild(pos, gr, log_dir + '/graph' +
+
+            if ini_mode == 'nothing':
+                #gr = radius_graph(pos, distance+distance/2, num_workers=8)
+                gr = my_radius_graph(pos, distance+distance/2, workers=8)
+            graph2bild(pos, gr, str(log_dir) + '/graph' +
                        str(epoch).zfill(3), color=epoch % 65)
             ff = generate_form_factor(
                 cons_model.i2F.A, cons_model.i2F.B, box_size)
@@ -1047,7 +1061,7 @@ def optimize_deformations(
 
         epoch_t = time.time() - start_t
 
-        if epoch % 1 == 0:
+        if epoch % 10 == 0:
             with torch.no_grad():
                 r0 = torch.zeros(2, 3)
                 t0 = torch.zeros(2, 2)
@@ -1072,14 +1086,14 @@ def optimize_deformations(
                               'dec_half1_optimizer': dec_half1_optimizer.state_dict(),
                               'dec_half2_optimizer': dec_half2_optimizer.state_dict(),
                               'indices_half1': half1_indices}
-                torch.save(checkpoint, log_dir + '/checkpoint' +
+                torch.save(checkpoint, str(log_dir) + '/checkpoint' +
                            str(epoch).zfill(3) + '.pth')
-                points2xyz(cons_model.pos, log_dir + '/positions' +
+                points2xyz(cons_model.pos, str(log_dir) + '/positions' +
                            str(epoch).zfill(3), box_size, ang_pix, types)
-                points2xyz(mean_positions, log_dir + '/mean_positions' +
+                points2xyz(mean_positions, str(log_dir) + '/mean_positions' +
                            str(epoch).zfill(3), box_size, ang_pix, types)
 
-                with mrcfile.new(log_dir + '/volume' + str(epoch).zfill(3) + '.mrc', overwrite=True) as mrc:
+                with mrcfile.new(str(log_dir) + '/volume' + str(epoch).zfill(3) + '.mrc', overwrite=True) as mrc:
                     mrc.set_data((V[0]/torch.mean(V[0])).float().numpy())
                     mrc.voxel_size = ang_pix
                 #del V
