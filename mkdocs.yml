@@ -3,7 +3,12 @@ site_url: https://github.com/schwabjohannes/dynamight
 site_author: Johannes Schwab
 site_description: >-
   Documentation for dynamight, a tool for estimating dynamics from cryo-EM images
-  which *might* improve your map.
+  which *might* improve your map. The tools main application area is flexible proteins, which are compositionally homogeneous.
+  The workflow consists of following four steps:
+  *Estimating the deformations present in the dataset*
+  *Exploring latent space to see if the results are useful*
+  *Computing the inverse deformations per particle*
+  *Reconstruct a map using the inverse deformations, which might be better*
 # Repository
 repo_name: schwabjohannes/dynamight
 repo_url: https://github.com/schwabjohannes/dynamight
