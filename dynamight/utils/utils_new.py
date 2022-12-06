@@ -432,47 +432,21 @@ def find_initialization_parameters(model, V):
         0.55*torch.ones(1).to(model.device), requires_grad=True)
 
 
-def initialize_dataset(input_arg, circular_mask_thickness, preload, part_diam=None):
-    RD = RelionDataset(input_arg)
-    a = []
-    for i in RD.image_file_paths:
-        mrc = mrcfile.open(i, 'r')
-        num_im = mrc.data.shape[0]
-        a.append(np.arange(num_im))
-    RD.part_stack_idx = np.concatenate(a)
-    dataset = RD.make_particle_dataset()
-    # dataset = RelionDataset()
-    # dataset.project_root = '/beegfs3/kmcnally/Molly2'
-    # dataset.data_star_path = input_arg
-    # #dataset.load(dataset.data_star_path)
-    # data = load_star(dataset.data_star_path)
-    # dataset._load_optics_group(data['optics'])
-    # dataset._load_particles(data['particles'])
-    optics_groups = dataset.get_optics_group_stats()
-    optics_group = optics_groups[0]
-
-    box_size = optics_group['image_size']
-    ang_pix = optics_group['pixel_size']
-
-    max_diameter_ang = box_size * \
-        optics_group['pixel_size'] - circular_mask_thickness
-
-    if part_diam is None:
-        diameter_ang = box_size * 1 * \
-            optics_group['pixel_size'] - circular_mask_thickness
-        print(f"Assigning a diameter of {round(diameter_ang)} angstrom")
-    else:
-        if part_diam > max_diameter_ang:
-            print(
-                f"WARNING: Specified particle diameter {round(part_diam)} angstrom is too large\n"
-                f" Assigning a diameter of {round(max_diameter_ang)} angstrom"
-            )
-            diameter_ang = max_diameter_ang
-        else:
-            diameter_ang = part_diam
-
-    if preload:
-        dataset.preload_images()
+def initialize_dataset(
+    refinement_star_file: Path,
+    circular_mask_thickness: float,
+    preload: bool,
+    particle_diameter: Optional[float] = None
+):
+    dataset = RelionDataset(refinement_star_file)
+    ### For Kyle's weird data ###
+    # a = []
+    # for i in dataset.image_file_paths:
+    #     mrc = mrcfile.open(i, 'r')
+    #     num_im = mrc.data.shape[0]
+    #     a.append(np.arange(num_im))
+    # dataset.part_stack_idx = np.concatenate(a)
+    # dataset = dataset.make_particle_dataset()
 
     return dataset, diameter_ang, box_size, ang_pix, optics_group
 
@@ -1436,3 +1410,20 @@ def scatter_mean_sub(src, inds, dim=-1):
     ones = torch.ones(inds.size(), dtype=src.dtype, device=src.device)
     count = scatter_sub(ones, inds, dim)
     return out_sum/count
+
+
+def calculate_grid_oversampling_factor(box_size: int) -> int:
+    """Calculate a grid oversampling factor for rendering gaussians.
+
+    Rendering gaussians on a grid is done by projecting the
+    gaussian down into 2D and 'spreading' values which sum up to 1 over the
+    nearest four pixels. Values for each pixel are calculated by
+    bilinear interpolation.
+    """
+    if box_size < 100:
+        grid_oversampling_factor = 3
+    if box_size < 300 and box_size > 99:
+        grid_oversampling_factor = 2
+    if box_size > 299:
+        grid_oversampling_factor = 1
+    return grid_oversampling_factor

@@ -16,12 +16,14 @@ from enum import Enum, auto
 import numpy as np
 import torch
 import mrcfile
+import typer
 
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 # from torch_geometric.nn import knn_graph, radius_graph
 from ..data.handlers.particle_image_preprocessor import \
     ParticleImagePreprocessor
+from ..data.dataloaders.relion import RelionDataset
 from ..data.handlers.io_logger import IOLogger
 from ..models.consensus import ConsensusModel
 from ..models.decoder import DisplacementDecoder
@@ -33,13 +35,14 @@ from ..utils.utils_new import compute_threshold, initialize_consensus, \
     fourier_loss, power_spec2, radial_avg2, geometric_loss, frc, \
     reset_all_linear_layer_weights, graph2bild, generate_form_factor, \
     prof2radim, visualize_latent, tensor_plot, tensor_imshow, tensor_scatter, \
-    tensor_hist, apply_ctf, write_xyz, my_knn_graph, my_radius_graph
+    tensor_hist, apply_ctf, write_xyz, my_knn_graph, my_radius_graph, \
+    calculate_grid_oversampling_factor
 # from coarse_grain import optimize_coarsegraining
 
 # TODO: add coarse graining to GitHub
 
 
-from typer import Option
+from typer import Option, Typer
 
 from .._cli import cli
 
@@ -50,10 +53,14 @@ class ConsensusInitializationMode(Enum):
     MODEL = auto()
 
 
-@cli.command()
+@cli.command(no_args_is_help=True)
 def optimize_deformations(
-    refinement_star_file: Path,
-    output_directory: Path,
+    refinement_star_file: Path = typer.Option(
+        default=..., prompt=False, prompt_required=True
+    ),
+    output_directory: Path = typer.Option(
+        default=..., prompt=False, prompt_required=True
+    ),
     initial_model: Optional[Path] = None,
     initial_threshold: float = 0.1,
     initial_resolution: int = 8,
@@ -105,35 +112,29 @@ def optimize_deformations(
         initialization_mode = ConsensusInitializationMode.MODEL
 
     if gpu_id is None:
-        print("Running on CPU")
+        typer.echo("Running on CPU")
     else:
-        print("Training on GPU", gpu_id)
+        typer.echo(f"Training on GPU {gpu_id}")
 
     device = 'cpu' if gpu_id is None else 'cuda:' + str(gpu_id)
 
-    print('Initializing the dataset')
+    typer.echo('Initializing the particle dataset')
 
-    dataset, diameter_ang, box_size, ang_pix, optics_group = initialize_dataset(
-        refinement_star_file, soft_edge_width, preload_images,
-        particle_diameter)
-    '----------------------------------------------------------------'
-    'Define standard oversampling factor'
-    '----------------------------------------------------------------'
+    relion_dataset = RelionDataset(
+        path=refinement_star_file,
+        circular_mask_thickness=soft_edge_width,
+        particle_diameter=particle_diameter,
+    )
+    particle_dataset = relion_dataset.make_particle_dataset()
+    diameter_ang = relion_dataset.particle_diameter
+    box_size = relion_dataset.box_size
+    ang_pix = relion_dataset.pixel_spacing_angstroms
 
-    if box_size < 100:
-        oversampling = 3
-    if box_size < 300 and box_size > 99:
-        oversampling = 2
-    if box_size > 299:
-        oversampling = 1
+    print('Number of particles:', len(particle_dataset))
 
-    print('Number of particles:', len(dataset))
-
-    '----------------------------------------------------------------------------------------------------------------------------------'
-    'Initialize poses and pose optimizer'
-    '----------------------------------------------------------------------------------------------------------------------------------'
-    original_angles = dataset.part_rotation.astype(np.float32)
-    original_shifts = -dataset.part_translation.astype(np.float32)
+    # initialise poses and pose optimiser
+    original_angles = particle_dataset.part_rotation.astype(np.float32)
+    original_shifts = -particle_dataset.part_translation.astype(np.float32)
     angles = original_angles
     shifts = original_shifts
 
@@ -144,29 +145,19 @@ def optimize_deformations(
         shifts, requires_grad=True).to(device))
     shifts_op = torch.optim.Adam([shifts], lr=1e-3)
 
-    '--------------------------------------------------------------------------------------------'
-    'Initialize training dataloaders for random halves and regularization parameter calibration'
-    '--------------------------------------------------------------------------------------------'
-
-    calibration_data = torch.utils.data.Subset(
-        dataset, torch.randint(0, len(dataset), (100,)))
-    data_loader_cal = DataLoader(
-        dataset=calibration_data,
-        batch_size=batch_size,
-        num_workers=8,
-        shuffle=True,
-        pin_memory=False
-    )
-
-    if checkpoint_file:
+    # initialise training dataloaders
+    if checkpoint_file is not None:  # get subsets from checkpoint if present
         cp = torch.load(checkpoint_file, map_location=device)
         inds_half1 = cp['indices_half1'].cpu().numpy()
-        inds_half2 = list(set(range(len(dataset))) - set(list(inds_half1)))
-        dataset_half1 = torch.utils.data.Subset(dataset, inds_half1)
-        dataset_half2 = torch.utils.data.Subset(dataset, inds_half2)
+        inds_half2 = list(
+            set(range(len(particle_dataset))) - set(list(inds_half1)))
+        dataset_half1 = torch.utils.data.Subset(particle_dataset, inds_half1)
+        dataset_half2 = torch.utils.data.Subset(particle_dataset, inds_half2)
     else:
         dataset_half1, dataset_half2 = torch.utils.data.dataset.random_split(
-            dataset, [len(dataset) // 2, len(dataset) - len(dataset) // 2])
+            particle_dataset, [len(particle_dataset) // 2,
+                               len(particle_dataset) - len(
+                                   particle_dataset) // 2])
 
     data_loader_half1 = DataLoader(
         dataset=dataset_half1,
@@ -185,11 +176,13 @@ def optimize_deformations(
     )
 
     batch = next(iter(data_loader_half1))
+
+    # initialise preprocessor for particle images (masking)
     data_preprocessor = ParticleImagePreprocessor()
     data_preprocessor.initialize_from_stack(
         stack=batch["image"],
-        circular_mask_radius=diameter_ang / (2 * optics_group['pixel_size']),
-        circular_mask_thickness=soft_edge_width / optics_group['pixel_size']
+        circular_mask_radius=diameter_ang / (2 * ang_pix),
+        circular_mask_thickness=soft_edge_width / ang_pix
     )
     data_preprocessor.set_device(device)
     print('Initialized data loaders for half sets of size',
@@ -200,10 +193,7 @@ def optimize_deformations(
           n_latent_dimensions)
     latent_dim = n_latent_dimensions
 
-    '--------------------------------------------------------------------'
-    'Iniitialize gaussian model if pdb is provided'
-    '--------------------------------------------------------------------'
-
+    # initialise the gaussian model
     if initialization_mode == ConsensusInitializationMode.MODEL:
         mode = 'model'
         consensus_model, gr = optimize_coarsegraining(
@@ -220,14 +210,11 @@ def optimize_deformations(
 
     else:
         N_points = consensus_model.pos.shape[0]
-        n_gaussians = N_points
 
     if initialization_mode == ConsensusInitializationMode.EMPTY:
         mode = 'density'
-    '------------------------------------------------------------------'
-    'Define learning parameters'
-    '------------------------------------------------------------------'
 
+    # define optimisation parameters
     consensus = n_warmup_epochs
     n_classes = n_gaussian_widths
     pos_enc_dim = n_positional_encoding_dimensions
@@ -237,7 +224,9 @@ def optimize_deformations(
     # LR = 0.0005
     # posLR = 0.0005
 
-    print('Number of used gaussians:', N_points)
+    typer.echo(f'Number of used gaussians: {N_points}')
+
+    grid_oversampling_factor = calculate_grid_oversampling_factor(box_size)
 
     try:
         consensus_model.i2F.A = torch.nn.Parameter(torch.linspace(
@@ -246,20 +235,21 @@ def optimize_deformations(
         consensus_model.pos.requires_grad = False
     except:
         consensus_model = ConsensusModel(
-            box_size, device, N_points, n_classes, oversampling).to(device)
+            box_size, device, N_points, n_classes, grid_oversampling_factor).to(
+            device)
 
     deformation_half1 = DisplacementDecoder(box_size, device, latent_dim,
                                             N_points, n_classes,
                                             n_linear_layers,
                                             n_neurons_per_layer,
                                             LinearBlock, pos_enc_dim,
-                                            oversampling).to(device)
+                                            grid_oversampling_factor).to(device)
     deformation_half2 = DisplacementDecoder(box_size, device, latent_dim,
                                             N_points, n_classes,
                                             n_linear_layers,
                                             n_neurons_per_layer,
                                             LinearBlock, pos_enc_dim,
-                                            oversampling).to(device)
+                                            grid_oversampling_factor).to(device)
     encoder_half1 = HetEncoder(box_size, latent_dim, 1).to(device)
     encoder_half2 = HetEncoder(box_size, latent_dim, 1).to(device)
 
@@ -290,12 +280,10 @@ def optimize_deformations(
             mask = torch.tensor(mrc.data)
         mask = mask.movedim(0, 2).movedim(0, 1)
 
-    print('consensus model  initialization finished')
-
     if checkpoint_file:
         encoder_half1, encoder_half2, deformation_half1, deformation_half2 = load_models(
             checkpoint_file, device, box_size, n_classes)
-
+    print('consensus model  initialization finished')
     dec_half1_params = deformation_half1.parameters()
     dec_half2_params = deformation_half2.parameters()
     enc_half1_params = encoder_half1.parameters()
@@ -330,7 +318,7 @@ def optimize_deformations(
     'Start Training'
     '--------------------------------------------------------------------------------------------------------------------'
 
-    kld_weight = batch_size / len(dataset)
+    kld_weight = batch_size / len(particle_dataset)
     beta = kld_weight * 0.0006
     # beta = kld_weight*0.0002
     # beta = kld_weight*0.00002
@@ -393,7 +381,7 @@ def optimize_deformations(
 
         half1_indices = torch.tensor(
             [item for sublist in half1_indices for item in sublist])
-        cols = torch.ones(len(dataset))
+        cols = torch.ones(len(particle_dataset))
         cols[half1_indices] = 2
         cons_params = consensus_model.parameters()
         cons_optimizer = torch.optim.Adam(cons_params, lr=posLR)
@@ -406,7 +394,7 @@ def optimize_deformations(
 
         with torch.no_grad():
             if initialization_mode in (ConsensusInitializationMode.EMPTY,
-                                          ConsensusInitializationMode.MAP):
+                                       ConsensusInitializationMode.MAP):
                 # gr1 = radius_graph(cons_model.pos*ang_pix *
                 #                   box_size, distance+distance/2, num_workers=8)
                 gr1 = my_radius_graph(consensus_model.pos * ang_pix *
@@ -491,8 +479,8 @@ def optimize_deformations(
 
         start_t = time.time()
 
-        latent_space = np.zeros([len(dataset), tot_latent_dim])
-        diff = np.zeros([len(dataset), 1])
+        latent_space = np.zeros([len(particle_dataset), tot_latent_dim])
+        diff = np.zeros([len(particle_dataset), 1])
 
         mean_dist = torch.zeros(consensus_model.n_points)
         mean_dist_half1 = torch.zeros(consensus_model.n_points)
@@ -501,7 +489,7 @@ def optimize_deformations(
         displacement_variance_h2 = torch.zeros_like(mean_dist)
 
         calibration_data = torch.utils.data.Subset(
-            dataset, torch.randint(0, len(dataset), (1000,)))
+            particle_dataset, torch.randint(0, len(particle_dataset), (1000,)))
         data_loader_cal = DataLoader(
             dataset=calibration_data,
             batch_size=batch_size,
@@ -536,19 +524,18 @@ def optimize_deformations(
             z = mu + torch.exp(0.5 * logsigma) * torch.randn_like(mu)
             z_in = [z]
 
-            if epoch < consensus and learn_consensus == True:  # Set latent code for consensus reconstruction to zero
-                Proj, P, PP, n_points = consensus_model(r, shift)
-                d_points = torch.zeros_like(n_points)
+            if epoch < consensus and learn_consensus is True:
+                # Set latent code for consensus reconstruction to zero
+                Proj, P, PP, new_points = consensus_model(r, shift)
             else:
-                Proj, P, PP, n_points, d_points = deformation_half1(z_in, r,
-                                                                    consensus_model.pos.to(
-                                                                        device),
-                                                                    consensus_model.amp.to(
-                                                                        device),
-                                                                    consensus_model.ampvar.to(
-                                                                        device),
-                                                                    shift.to(
-                                                                        device))
+                Proj, P, PP, new_points, deformed_points = deformation_half1(
+                    z_in,
+                    r,
+                    consensus_model.pos.to(device),
+                    consensus_model.amp.to(device),
+                    consensus_model.ampvar.to(device),
+                    shift.to(device)
+                )
 
             y = sample["image"].to(device)
             y = data_preprocessor.apply_circular_mask(y.detach())
@@ -617,22 +604,23 @@ def optimize_deformations(
             z_in = [z]
 
             if epoch < consensus and learn_consensus == True:  # Set latent code for consensus reconstruction to zero
-                Proj, P, PP, n_points = consensus_model(r, shift)
-                d_points = torch.zeros_like(n_points)
+                Proj, P, PP, new_points = consensus_model(r, shift)
+                deformed_points = torch.zeros_like(new_points)
             else:
-                Proj, P, PP, n_points, d_points = deformation_half1(z_in, r,
-                                                                    consensus_model.pos.to(
-                                                                        device),
-                                                                    consensus_model.amp.to(
-                                                                        device),
-                                                                    consensus_model.ampvar.to(
-                                                                        device),
-                                                                    shift.to(
-                                                                        device))
+                Proj, P, PP, new_points, deformed_points = deformation_half1(
+                    z_in, r,
+                    consensus_model.pos.to(
+                        device),
+                    consensus_model.amp.to(
+                        device),
+                    consensus_model.ampvar.to(
+                        device),
+                    shift.to(
+                        device))
 
             y = sample["image"].to(device)
             y = data_preprocessor.apply_circular_mask(y.detach())
-            geo_loss = geometric_loss(n_points, box_size, ang_pix, distance,
+            geo_loss = geometric_loss(new_points, box_size, ang_pix, distance,
                                       deformation=cons_dis, graph1=gr1,
                                       graph2=gr2, mode=mode)
             try:
@@ -693,25 +681,27 @@ def optimize_deformations(
             if epoch < consensus and learn_consensus == True:  # Set latent code for consensus reconstruction to zero
                 # Proj, P, PP, n_points = cons_model(r,shift)
                 # d_points = torch.zeros_like(n_points)
-                Proj, P, PP, n_points, d_points = deformation_half1(z_in, r,
-                                                                    consensus_model.pos.to(
-                                                                        device),
-                                                                    consensus_model.amp.to(
-                                                                        device),
-                                                                    consensus_model.ampvar.to(
-                                                                        device),
-                                                                    shift.to(
-                                                                        device))
+                Proj, P, PP, new_points, deformed_points = deformation_half1(
+                    z_in, r,
+                    consensus_model.pos.to(
+                        device),
+                    consensus_model.amp.to(
+                        device),
+                    consensus_model.ampvar.to(
+                        device),
+                    shift.to(
+                        device))
             else:
-                Proj, P, PP, n_points, d_points = deformation_half1(z_in, r,
-                                                                    consensus_model.pos.to(
-                                                                        device),
-                                                                    consensus_model.amp.to(
-                                                                        device),
-                                                                    consensus_model.ampvar.to(
-                                                                        device),
-                                                                    shift.to(
-                                                                        device))
+                Proj, P, PP, new_points, deformed_points = deformation_half1(
+                    z_in, r,
+                    consensus_model.pos.to(
+                        device),
+                    consensus_model.amp.to(
+                        device),
+                    consensus_model.ampvar.to(
+                        device),
+                    shift.to(
+                        device))
 
                 with torch.no_grad():
                     try:
@@ -728,14 +718,16 @@ def optimize_deformations(
                                                               consensus_model.ampvar.to(
                                                                   device),
                                                               shift.to(device))
-                    mean_positions += torch.sum(n_points.detach(), 0)
+                    mean_positions += torch.sum(new_points.detach(), 0)
 
                     diff[sample["idx"].cpu().numpy()] = torch.mean(
-                        torch.sum((d_points - d_points2) ** 2, 2), 1).unsqueeze(
+                        torch.sum((deformed_points - d_points2) ** 2, 2),
+                        1).unsqueeze(
                         1).detach().cpu()
 
             displacement_variance_h1 += torch.sum(
-                torch.linalg.norm(d_points.detach().cpu(), dim=2) ** 2, 0)
+                torch.linalg.norm(deformed_points.detach().cpu(), dim=2) ** 2,
+                0)
             y = sample["image"].to(device)
             y = data_preprocessor.apply_circular_mask(y.detach())
             rec_loss = fourier_loss(
@@ -753,7 +745,8 @@ def optimize_deformations(
             else:
                 encoder_half1.requires_grad = True
                 geo_loss = geometric_loss(
-                    n_points, box_size, ang_pix, distance, deformation=cons_dis,
+                    new_points, box_size, ang_pix, distance,
+                    deformation=cons_dis,
                     graph1=gr1, graph2=gr2, mode=mode)
 
             if epoch < consensus:
@@ -815,25 +808,27 @@ def optimize_deformations(
                 # Proj, P, PP, n_points = cons_model(r,shift)
                 # d_points = torch.zeros_like(n_points)
                 # d_points2 = torch.zeros_like(n_points)
-                Proj, P, PP, n_points, d_points = deformation_half2(z_in, r,
-                                                                    consensus_model.pos.to(
-                                                                        device),
-                                                                    consensus_model.amp.to(
-                                                                        device),
-                                                                    consensus_model.ampvar.to(
-                                                                        device),
-                                                                    shift.to(
-                                                                        device))
+                Proj, P, PP, new_points, deformed_points = deformation_half2(
+                    z_in, r,
+                    consensus_model.pos.to(
+                        device),
+                    consensus_model.amp.to(
+                        device),
+                    consensus_model.ampvar.to(
+                        device),
+                    shift.to(
+                        device))
             else:
-                Proj, P, PP, n_points, d_points = deformation_half2(z_in, r,
-                                                                    consensus_model.pos.to(
-                                                                        device),
-                                                                    consensus_model.amp.to(
-                                                                        device),
-                                                                    consensus_model.ampvar.to(
-                                                                        device),
-                                                                    shift.to(
-                                                                        device))
+                Proj, P, PP, new_points, deformed_points = deformation_half2(
+                    z_in, r,
+                    consensus_model.pos.to(
+                        device),
+                    consensus_model.amp.to(
+                        device),
+                    consensus_model.ampvar.to(
+                        device),
+                    shift.to(
+                        device))
 
                 with torch.no_grad():
                     try:
@@ -850,13 +845,14 @@ def optimize_deformations(
                                                               consensus_model.ampvar.to(
                                                                   device),
                                                               shift.to(device))
-                    mean_positions += torch.sum(n_points.detach(), 0)
+                    mean_positions += torch.sum(new_points.detach(), 0)
 
                     diff[sample["idx"].cpu().numpy()] = torch.mean(
-                        (d_points - d_points2) ** 2).detach().cpu()
+                        (deformed_points - d_points2) ** 2).detach().cpu()
 
             displacement_variance_h2 += torch.sum(
-                torch.linalg.norm(d_points.detach().cpu(), dim=2) ** 2, 0)
+                torch.linalg.norm(deformed_points.detach().cpu(), dim=2) ** 2,
+                0)
             y = sample["image"].to(device)
             y = data_preprocessor.apply_circular_mask(y.detach())
             rec_loss = fourier_loss(
@@ -874,7 +870,8 @@ def optimize_deformations(
             else:
                 encoder_half2.requires_grad = True
                 geo_loss = geometric_loss(
-                    n_points, box_size, ang_pix, distance, deformation=cons_dis,
+                    new_points, box_size, ang_pix, distance,
+                    deformation=cons_dis,
                     graph1=gr1, graph2=gr2, mode=mode)
 
             if epoch < consensus:
@@ -903,7 +900,7 @@ def optimize_deformations(
 
             with torch.no_grad():
                 mean_dist_half1 += torch.sum(
-                    torch.linalg.norm(d_points, dim=2), 0).cpu()
+                    torch.linalg.norm(deformed_points, dim=2), 0).cpu()
                 mean_dist_half2 += torch.sum(
                     torch.linalg.norm(d_points2, dim=2), 0).cpu()
 
@@ -925,7 +922,7 @@ def optimize_deformations(
             pass
 
         if epoch > (consensus - 1) and consensus_update_rate != 0:
-            mean_positions /= len(dataset)
+            mean_positions /= len(particle_dataset)
             if K % 2 == 0:
                 dl = data_loader_half1
             else:
@@ -959,17 +956,18 @@ def optimize_deformations(
                     z = mu + torch.exp(0.5 * logsigma) * torch.randn_like(mu)
                     z_in = [z]
                     # z_amp = z[:,-1:]
-                    Proj, P, PP, n_points, d_points = deformation_half1(z_in, r,
-                                                                        consensus_model.pos.to(
-                                                                            device),
-                                                                        consensus_model.amp.to(
-                                                                            device),
-                                                                        consensus_model.ampvar.to(
-                                                                            device),
-                                                                        shift.to(
-                                                                            device))
+                    Proj, P, PP, new_points, deformed_points = deformation_half1(
+                        z_in, r,
+                        consensus_model.pos.to(
+                            device),
+                        consensus_model.amp.to(
+                            device),
+                        consensus_model.ampvar.to(
+                            device),
+                        shift.to(
+                            device))
                     defs = torch.linalg.norm(
-                        torch.linalg.norm(d_points, dim=2), dim=1)
+                        torch.linalg.norm(deformed_points, dim=2), dim=1)
                     if batch_ndx == 0:
                         lat = mu
                         dis_norm = defs
@@ -983,7 +981,7 @@ def optimize_deformations(
                     dis_norm, consensus_update_pooled_particles, largest=False)
                 min_indix = idix[bottom_ind].cpu()
 
-            sub_data = torch.utils.data.Subset(dataset, min_indix)
+            sub_data = torch.utils.data.Subset(particle_dataset, min_indix)
             data_loader_sub = DataLoader(
                 dataset=sub_data,
                 batch_size=batch_size,
@@ -992,7 +990,7 @@ def optimize_deformations(
                 pin_memory=False
             )
             new_pos = torch.zeros(
-                n_points.shape[1], n_points.shape[2]).to(device)
+                new_points.shape[1], new_points.shape[2]).to(device)
             with torch.no_grad():
                 for batch_ndx, sample in enumerate(data_loader_sub):
                     r, y, ctf, shift = sample["rotation"], sample["image"], \
@@ -1017,16 +1015,17 @@ def optimize_deformations(
 
                     z = mu + torch.exp(0.5 * logsigma) * torch.randn_like(mu)
                     z_in = [z]
-                    Proj, P, PP, n_points, d_points = deformation_half1(z_in, r,
-                                                                        consensus_model.pos.to(
-                                                                            device),
-                                                                        consensus_model.amp.to(
-                                                                            device),
-                                                                        consensus_model.ampvar.to(
-                                                                            device),
-                                                                        shift.to(
-                                                                            device))
-                    new_pos += torch.sum(n_points, 0).detach()
+                    Proj, P, PP, new_points, deformed_points = deformation_half1(
+                        z_in, r,
+                        consensus_model.pos.to(
+                            device),
+                        consensus_model.amp.to(
+                            device),
+                        consensus_model.ampvar.to(
+                            device),
+                        shift.to(
+                            device))
+                    new_pos += torch.sum(new_points, 0).detach()
 
                 new_pos /= consensus_update_pooled_particles
 
@@ -1179,7 +1178,7 @@ def optimize_deformations(
                                            c=mean_dist_half2, s=3), epoch)
             summ.add_figure(
                 "Data/delta",
-                tensor_scatter(n_points[0, :, 0], n_points[0, :, 1], 'b',
+                tensor_scatter(new_points[0, :, 0], new_points[0, :, 1], 'b',
                                s=0.1), epoch)
             summ.add_figure(
                 "Data/delta_h1",
