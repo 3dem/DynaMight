@@ -5,7 +5,8 @@ Created on Thu Aug  5 12:24:45 2021
 
 @author: schwab
 """
-
+from pathlib import Path
+from typing import Sequence, Optional
 
 import numpy as np
 import matplotlib
@@ -686,18 +687,25 @@ def visualize_latent(z, c, s=0.1, alpha=0.5, cmap='jet', method='umap'):
     return fig
 
 
-def points2xyz(points, title, box_size, ang_pix, types=None):
-
+def write_xyz(
+    points: torch.Tensor,
+    output_file: Path,
+    box_size: int,
+    ang_pix: float,
+    class_id: torch.Tensor  # argmax of gaussian width
+):
+    # turn class IDs into atom specifiers for coloring
     points = box_size*ang_pix*(0.5+points.detach().data.cpu().numpy())
-    atomtypes = ("C",)
-    atoms = np.array(['C', 'O', 'N', 'H', 'S']+['C']*200)
-    ind = types.int().detach().cpu().numpy().astype(int)
-    atomtypes = atoms[ind]
-    f = open(title+'.xyz', 'a')
-    f.write("%d\n%s\n" % (points.size / 3, title))
-    for x, atomtype in zip(points.reshape(-1, 3), atomtypes):
-        f.write("%s %.18g %.18g %.18g\n" % (atomtype, x[0], x[1], x[2]))
-    f.close()
+    atom_spec = np.array(['C', 'O', 'N', 'H', 'S']+['C']*200)
+    atom_idx = class_id.detach().cpu().numpy().astype(int)
+    atoms = atom_spec[atom_idx]
+
+    # write out file
+    with open(output_file, mode='a') as f:
+        f.write("%d\n%s\n" % (points.size / 3, output_file))
+        for x, atom in zip(points.reshape(-1, 3), atoms):
+            f.write("%s %.18g %.18g %.18g\n" % (atom, x[0], x[1], x[2]))
+
 
 
 def graph2bild(points, edge_index, title, color=5):
@@ -1224,8 +1232,8 @@ def initial_optimization(cons_model, atom_model, device, directory, angpix, N_ep
         loss = -torch.sum(fsc)  # 1e-2*f1(lay(coarse_model.pos))
         types = torch.argmax(torch.nn.functional.softmax(
             cons_model.ampvar, dim=0), dim=0)
-        points2xyz(cons_model.pos, '/cephfs/schwab/approximation/positions' +
-                   str(i).zfill(3), box_size, angpix, types)
+        write_xyz(cons_model.pos, '/cephfs/schwab/approximation/positions' +
+                  str(i).zfill(3), box_size, angpix, types)
         # print(torch.nn.functional.mse_loss(V[0],V0.detach()).detach())
         # print(f1(lay(coarse_model.pos)).detach())
         loss.backward()

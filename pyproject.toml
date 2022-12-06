@@ -36,7 +36,6 @@ dependencies = [
     "tqdm",
     "tensorboard",
     "PyQt5",
-    #"torch-scatter",
     "typer",
     "biopython",
 ]
