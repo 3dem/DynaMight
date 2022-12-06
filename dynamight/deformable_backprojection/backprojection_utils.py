@@ -40,7 +40,7 @@ class DeformationInterpolator:
         values = values.cpu()
         values = torch.tensor(self.grid) - values + torch.tensor(self.grid)
         dispM[0, :, self.int_grid[:, 2], self.int_grid[:, 1],
-        self.int_grid[:, 0]] = values.movedim(
+              self.int_grid[:, 0]] = values.movedim(
             0, 1).float()
         dispL = torch.nn.functional.upsample(dispM, scale_factor=self.ds,
                                              mode='trilinear')
@@ -98,7 +98,7 @@ class RotateVolume(nn.Module):
         G = torch.nn.functional.affine_grid(R, (
             batch_size, 1, self.box_size + 1, self.box_size + 1,
             self.box_size + 1),
-                                            align_corners=False).float()
+            align_corners=False).float()
         VV = F.grid_sample(input=V, grid=G.to(self.device), mode='bilinear',
                            align_corners=False)
 
@@ -107,8 +107,11 @@ class RotateVolume(nn.Module):
 
 def generate_smooth_mask_and_grids(mask_file, device, soft_edge=10):
     """Soft edged mask and grids with points inside and outside the mask."""
-    with mrcfile.open(mask_file) as mrc:
-        rec_area = torch.tensor(mrc.data).to(device)
+    if type(mask_file) == str:
+        with mrcfile.open(mask_file) as mrc:
+            rec_area = torch.tensor(mrc.data).to(device)
+    else:
+        rec_area = mask_file
     box_size = rec_area.shape[-1]
     bin_mask = (rec_area > 0).float()
     sm_bin_mask = torch.nn.functional.conv3d(bin_mask.unsqueeze(0).unsqueeze(0),
@@ -133,3 +136,29 @@ def generate_smooth_mask_and_grids(mask_file, device, soft_edge=10):
     del rec_area, GG, Ginds, pointsi, pointso
 
     return ess_grid, out_grid, sm_bin_mask
+
+
+def generate_smooth_mask_from_consensus(consensus, box_size, ang_pix, distance, soft_edge=10):
+    "generate mask from consensus gaussian model with mask being 1 if voxel center closer than distance (in angstrom) from a gaussian center"
+    device = consensus.device
+    points = (consensus.pos*box_size)/ang_pix
+    x = (torch.linspace(-0.5, 0.5, box_size)*(box_size-1))/ang_pix
+    grid = torch.meshgrid(x, x, x)
+    grid = torch.stack([grid[0].ravel(), grid[1].ravel(), grid[2].ravel()], 1)
+    tree = KDTree(points.cpu().numpy())
+    (dists, points) = tree.query(grid.cpu().numpy())
+    ess_grid = grid[dists < distance]
+    ess_grid_int = torch.round((ess_grid - torch.min(grid))*ang_pix).long()
+    M = torch.zeros(box_size, box_size, box_size)
+    M[ess_grid_int[:, 0], ess_grid_int[:, 1], ess_grid_int[:, 2]] = 1
+    if soft_edge > 0:
+        sm_bin_mask = torch.nn.functional.conv3d(M.unsqueeze(0).unsqueeze(0).to(device),
+                                                 torch.ones(1, 1, soft_edge,
+                                                            soft_edge,
+                                                            soft_edge).to(
+                                                     device) / (soft_edge ** 3),
+                                                 padding='same')
+        sm_bin_mask = sm_bin_mask.squeeze()
+    else:
+        sm_bin_mask = M.to(device)
+    return sm_bin_mask.movedim(0, 1).movedim(1, 2).movedim(0, 1)

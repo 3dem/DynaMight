@@ -36,9 +36,9 @@ from .._cli import cli
 
 @cli.command()
 def explore_latent_space(
-    refinement_star_file: Path,
-    checkpoint_file: Path,
     output_directory: Path,
+    refinement_star_file: Optional[Path] = None,
+    checkpoint_file: Optional[Path] = None,
     half_set: int = 1,
     mask_file: Optional[Path] = None,
     particle_diameter: Optional[float] = None,
@@ -52,13 +52,13 @@ def explore_latent_space(
     atomic_model: str = None,
 ):
 
-    dataframe = starfile.read(refinement_star_file)
-    circular_mask_thickness = soft_edge_width
-
     device = "cpu" if gpu_id == "-1" else 'cuda:' + str(gpu_id)
 
     '-----------------------------------------------------------------------------'
     'load and prepare models for inference'
+    if checkpoint_file == None:
+        checkpoint_file = str(output_directory) + \
+            '/fwd_deformations/checkpoint_final.pth'
     cp = torch.load(checkpoint_file, map_location=device)
     if inverse_deformation != None:
         cp_inv = torch.load(inverse_deformation, map_location=device)
@@ -66,6 +66,12 @@ def explore_latent_space(
         inv_half2 = cp_inv['inv_half2']
         inv_half1.load_state_dict(cp_inv['inv_half1_state_dict'])
         inv_half2.load_state_dict(cp_inv['inv_half2_state_dict'])
+
+    if refinement_star_file == None:
+        refinement_star_file = cp['refinement_directory']
+
+    dataframe = starfile.read(refinement_star_file)
+    circular_mask_thickness = soft_edge_width
 
     encoder = cp['encoder_' + 'half' + str(half_set)]
     cons_model = cp['consensus']

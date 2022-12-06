@@ -4,6 +4,7 @@ from typing import Optional
 import torch
 from torch.utils.data import DataLoader
 from typer import Option
+import os
 
 from ..data.handlers.particle_image_preprocessor import \
     ParticleImagePreprocessor
@@ -13,26 +14,34 @@ from ..utils.utils_new import initialize_dataset, add_weight_decay
 
 from .._cli import cli
 
+
 @cli.command()
 def optimize_inverse_deformations(
-    refinement_star_file: Path,
-    vae_checkpoint: Path,
     output_directory: Path,
+    refinement_star_file: Optional[Path] = None,
+    vae_checkpoint: Optional[Path] = None,
     batch_size: int = Option(100),
     n_epochs: int = Option(50),
-    gpu_id: Optional[int] = Option(None),
+    gpu_id: Optional[int] = Option(0),
     preload_images: bool = Option(False),
     add_noise: bool = Option(False),
     particle_diameter: Optional[float] = Option(None),
     mask_soft_edge_width: int = Option(20),
     data_loader_threads: int = Option(4),
 ):
+
+    os.mkdir(str(output_directory)+'/bwd_deformations')
     circular_mask_thickness = mask_soft_edge_width
     batch_size = batch_size
 
     device = 'cuda:' + str(gpu_id)
-
+    if vae_checkpoint == None:
+        vae_checkpoint = str(output_directory) + \
+            '/fwd_deformations/checkpoint_final.pth'
     cp = torch.load(vae_checkpoint, map_location=device)
+
+    if refinement_star_file == None:
+        refinement_star_file = cp['refinement_directory']
 
     encoder_half1 = cp['encoder_half1']
     encoder_half2 = cp['encoder_half2']
@@ -291,4 +300,5 @@ def optimize_inverse_deformations(
     checkpoint = {'inv_half1': inv_half1, 'inv_half2': inv_half2,
                   'inv_half1_state_dict': inv_half1.state_dict(),
                   'inv_half2_state_dict': inv_half2.state_dict()}
-    torch.save(checkpoint, output_directory + 'inv_chkpt.pth')
+    torch.save(checkpoint, str(output_directory) +
+               '/bwd_deformations/inv_chkpt.pth')

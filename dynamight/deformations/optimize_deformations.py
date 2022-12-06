@@ -70,6 +70,7 @@ def optimize_deformations(
     n_workers: int = 8,
 ):
     output_directory.mkdir(exist_ok=True, parents=True)
+    os.mkdir(str(output_directory)+'/fwd_deformations')
     # todo: implement
     #       add argument for free gaussians and mask
     #       add argument intial_resolution
@@ -375,7 +376,7 @@ def optimize_deformations(
             cons_optimizer = torch.optim.Adam(cons_params, lr=posLR)
 
         with torch.no_grad():
-            if ini_mode == 'nothing':
+            if ini_mode == 'nothing' or ini_mode == 'map':
                 # gr1 = radius_graph(cons_model.pos*ang_pix *
                 #                   box_size, distance+distance/2, num_workers=8)
                 gr1 = my_radius_graph(cons_model.pos*ang_pix *
@@ -601,7 +602,8 @@ def optimize_deformations(
         if epoch == 0:
             lam_reg = 1
         else:
-            lam_reg = 0.1*regularization_factor*0.5*data_norm/prior_norm+0.9*lam_reg
+            lam_reg = regularization_factor * \
+                (0.1*0.5*data_norm/prior_norm+0.9*lam_reg)
         #lam_reg = 0
         print('new regularization parameter:', lam_reg)
 
@@ -930,6 +932,7 @@ def optimize_deformations(
                     reset_all_linear_layer_weights(encoder_half1)
                     reset_all_linear_layer_weights(encoder_half2)
                     regularization_factor = 1
+                    mode = 'model'
 
         with torch.no_grad():
             frc_half1 /= len(dataset_half1)
@@ -953,8 +956,7 @@ def optimize_deformations(
             if ini_mode == 'nothing':
                 #gr = radius_graph(pos, distance+distance/2, num_workers=8)
                 gr = my_radius_graph(pos, distance+distance/2, workers=8)
-            graph2bild(pos, gr, str(log_dir) + '/graph' +
-                       str(epoch).zfill(3), color=epoch % 65)
+
             ff = generate_form_factor(
                 cons_model.i2F.A, cons_model.i2F.B, box_size)
             ff2 = generate_form_factor(
@@ -1061,7 +1063,7 @@ def optimize_deformations(
 
         epoch_t = time.time() - start_t
 
-        if epoch % 10 == 0:
+        if epoch % 10 == 0 or epoch == (n_epochs-1):
             with torch.no_grad():
                 r0 = torch.zeros(2, 3)
                 t0 = torch.zeros(2, 2)
@@ -1085,15 +1087,19 @@ def optimize_deformations(
                               'cons_optimizer': cons_optimizer.state_dict(),
                               'dec_half1_optimizer': dec_half1_optimizer.state_dict(),
                               'dec_half2_optimizer': dec_half2_optimizer.state_dict(),
-                              'indices_half1': half1_indices}
-                torch.save(checkpoint, str(log_dir) + '/checkpoint' +
-                           str(epoch).zfill(3) + '.pth')
-                points2xyz(cons_model.pos, str(log_dir) + '/positions' +
+                              'indices_half1': half1_indices,
+                              'refinement_directory': refinement_star_file}
+                if epoch == (n_epochs-1):
+                    torch.save(checkpoint, str(log_dir) +
+                               '/fwd_deformations/checkpoint_final.pth')
+                else:
+                    torch.save(checkpoint, str(log_dir) + '/fwd_deformations/checkpoint' +
+                               str(epoch).zfill(3) + '.pth')
+                points2xyz(cons_model.pos, str(log_dir) + '/fwd_deformations/positions' +
                            str(epoch).zfill(3), box_size, ang_pix, types)
-                points2xyz(mean_positions, str(log_dir) + '/mean_positions' +
-                           str(epoch).zfill(3), box_size, ang_pix, types)
+                graph2bild(pos, gr, str(
+                    log_dir) + '/fwd_deformations/graph' + str(epoch).zfill(3), color=epoch % 65)
 
-                with mrcfile.new(str(log_dir) + '/volume' + str(epoch).zfill(3) + '.mrc', overwrite=True) as mrc:
+                with mrcfile.new(str(log_dir) + '/fwd_deformations/volume' + str(epoch).zfill(3) + '.mrc', overwrite=True) as mrc:
                     mrc.set_data((V[0]/torch.mean(V[0])).float().numpy())
                     mrc.voxel_size = ang_pix
-                #del V

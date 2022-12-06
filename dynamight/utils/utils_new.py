@@ -69,6 +69,7 @@ def geometric_loss(pos, box_size, ang_pix, dist, mode, deformation=None, graph1=
         graph = True
         neighbour = True
         distance = True
+        outlier = True
 
     if len(pos.shape) == 2:
         if neighbour == True:
@@ -127,7 +128,7 @@ def geometric_loss(pos, box_size, ang_pix, dist, mode, deformation=None, graph1=
         if distance == True:
             try:
                 dis = torch.pow(
-                    1e-7+torch.sum((pos[:, graph1[0]]-pos[:, graph1[1]])**2, 2), 0.5)
+                    1e-12+torch.sum((pos[:, graph1[0]]-pos[:, graph1[1]])**2, 2), 0.5)
                 distance_loss = torch.mean(gaussian_distance(dis, dist))
             except:
                 print(
@@ -139,8 +140,8 @@ def geometric_loss(pos, box_size, ang_pix, dist, mode, deformation=None, graph1=
             try:
                 out_dis = torch.pow(
                     1e-7+torch.sum((pos[:, graph2[0]]-pos[:, graph2[1]])**2, 2), 0.5)
-                out_dis = torch.clamp(out_dis, min=dist+0.2)
-                outlier_loss = torch.mean(out_dis-(dist+0.2))
+                out_dis = torch.clamp(out_dis, min=2*dist)
+                outlier_loss = torch.mean(out_dis-(2*dist))
             except:
                 print(
                     'KNN graph has to be provided for batch application of outlier loss')
@@ -161,8 +162,10 @@ def geometric_loss(pos, box_size, ang_pix, dist, mode, deformation=None, graph1=
             deformation_loss = torch.zeros(1).to(pos.device)
 
     #print('distance:', distance_loss, 'neighbour:', neighbour_loss, 'outlier:', outlier_loss)
-
-    return 0.0*neighbour_loss + distance_loss + outlier_loss + deformation_loss
+    if mode == 'density':
+        return 0.01*neighbour_loss + distance_loss + outlier_loss + deformation_loss
+    elif mode == 'model':
+        return deformation_loss
 
 
 def gaussian_distance(d, distance):
