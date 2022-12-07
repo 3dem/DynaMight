@@ -7,6 +7,8 @@ Module for loading RELION particle datasets
 import os
 
 from glob import glob
+from typing import Optional
+
 import numpy as np
 
 from ..handlers.particle_dataset import ParticleDataset
@@ -14,7 +16,12 @@ from ..handlers.star_file import load_star
 
 
 class RelionDataset:
-    def __init__(self, path: str = None):
+    def __init__(
+        self,
+        path: str = None,
+        circular_mask_thickness: float = 20,
+        particle_diameter: Optional[float] = None
+    ):
         self.project_root = None
         self.data_star_path = None
         self.preload = None
@@ -37,6 +44,13 @@ class RelionDataset:
 
         if path is not None:
             self.load(path)
+
+        # easy access things I need
+        self.box_size = self.optics_groups[0]['image_size']
+        self.particle_diameter = particle_diameter
+        self.circular_mask_thickness = circular_mask_thickness
+        self._infer_particle_diameter()  # sets self.particle_diameter
+        self.pixel_spacing_angstroms = self.optics_groups[0]['pixel_size']
 
     def load(self, path: str) -> None:
         """
@@ -275,3 +289,21 @@ class RelionDataset:
                 raise RuntimeError(
                     f"Relion project directory could not be found from the subdirectory: {from_path}")
             current_path = os.path.dirname(current_path)
+
+    def _infer_particle_diameter(self):
+        pixel_size = self.optics_groups[0]['pixel_size']
+
+        max_diameter_ang = self.box_size * pixel_size - self.circular_mask_thickness
+
+        if self.particle_diameter is None:
+            self.particle_diameter = self.box_size * 1 * pixel_size - \
+                           self.circular_mask_thickness
+            print(f"Assigning a diameter of {round(self.particle_diameter)} angstrom")
+        else:
+            if self.particle_diameter > max_diameter_ang:
+                print(
+                    f"WARNING: Specified particle diameter "
+                    f"{round(self.particle_diameter)} angstrom is too large\n"
+                    f" Assigning a diameter of {round(max_diameter_ang)} angstrom"
+                )
+                self.particle_diameter = max_diameter_ang

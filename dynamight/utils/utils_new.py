@@ -5,7 +5,8 @@ Created on Thu Aug  5 12:24:45 2021
 
 @author: schwab
 """
-
+from pathlib import Path
+from typing import Sequence, Optional
 
 import numpy as np
 import matplotlib
@@ -431,47 +432,21 @@ def find_initialization_parameters(model, V):
         0.55*torch.ones(1).to(model.device), requires_grad=True)
 
 
-def initialize_dataset(input_arg, circular_mask_thickness, preload, part_diam=None):
-    RD = RelionDataset(input_arg)
-    a = []
-    for i in RD.image_file_paths:
-        mrc = mrcfile.open(i, 'r')
-        num_im = mrc.data.shape[0]
-        a.append(np.arange(num_im))
-    RD.part_stack_idx = np.concatenate(a)
-    dataset = RD.make_particle_dataset()
-    # dataset = RelionDataset()
-    # dataset.project_root = '/beegfs3/kmcnally/Molly2'
-    # dataset.data_star_path = input_arg
-    # #dataset.load(dataset.data_star_path)
-    # data = load_star(dataset.data_star_path)
-    # dataset._load_optics_group(data['optics'])
-    # dataset._load_particles(data['particles'])
-    optics_groups = dataset.get_optics_group_stats()
-    optics_group = optics_groups[0]
-
-    box_size = optics_group['image_size']
-    ang_pix = optics_group['pixel_size']
-
-    max_diameter_ang = box_size * \
-        optics_group['pixel_size'] - circular_mask_thickness
-
-    if part_diam is None:
-        diameter_ang = box_size * 1 * \
-            optics_group['pixel_size'] - circular_mask_thickness
-        print(f"Assigning a diameter of {round(diameter_ang)} angstrom")
-    else:
-        if part_diam > max_diameter_ang:
-            print(
-                f"WARNING: Specified particle diameter {round(part_diam)} angstrom is too large\n"
-                f" Assigning a diameter of {round(max_diameter_ang)} angstrom"
-            )
-            diameter_ang = max_diameter_ang
-        else:
-            diameter_ang = part_diam
-
-    if preload:
-        dataset.preload_images()
+def initialize_dataset(
+    refinement_star_file: Path,
+    circular_mask_thickness: float,
+    preload: bool,
+    particle_diameter: Optional[float] = None
+):
+    dataset = RelionDataset(refinement_star_file)
+    ### For Kyle's weird data ###
+    # a = []
+    # for i in dataset.image_file_paths:
+    #     mrc = mrcfile.open(i, 'r')
+    #     num_im = mrc.data.shape[0]
+    #     a.append(np.arange(num_im))
+    # dataset.part_stack_idx = np.concatenate(a)
+    # dataset = dataset.make_particle_dataset()
 
     return dataset, diameter_ang, box_size, ang_pix, optics_group
 
@@ -686,18 +661,25 @@ def visualize_latent(z, c, s=0.1, alpha=0.5, cmap='jet', method='umap'):
     return fig
 
 
-def points2xyz(points, title, box_size, ang_pix, types=None):
-
+def write_xyz(
+    points: torch.Tensor,
+    output_file: Path,
+    box_size: int,
+    ang_pix: float,
+    class_id: torch.Tensor  # argmax of gaussian width
+):
+    # turn class IDs into atom specifiers for coloring
     points = box_size*ang_pix*(0.5+points.detach().data.cpu().numpy())
-    atomtypes = ("C",)
-    atoms = np.array(['C', 'O', 'N', 'H', 'S']+['C']*200)
-    ind = types.int().detach().cpu().numpy().astype(int)
-    atomtypes = atoms[ind]
-    f = open(title+'.xyz', 'a')
-    f.write("%d\n%s\n" % (points.size / 3, title))
-    for x, atomtype in zip(points.reshape(-1, 3), atomtypes):
-        f.write("%s %.18g %.18g %.18g\n" % (atomtype, x[0], x[1], x[2]))
-    f.close()
+    atom_spec = np.array(['C', 'O', 'N', 'H', 'S']+['C']*200)
+    atom_idx = class_id.detach().cpu().numpy().astype(int)
+    atoms = atom_spec[atom_idx]
+
+    # write out file
+    with open(output_file, mode='a') as f:
+        f.write("%d\n%s\n" % (points.size / 3, output_file))
+        for x, atom in zip(points.reshape(-1, 3), atoms):
+            f.write("%s %.18g %.18g %.18g\n" % (atom, x[0], x[1], x[2]))
+
 
 
 def graph2bild(points, edge_index, title, color=5):
@@ -1224,8 +1206,8 @@ def initial_optimization(cons_model, atom_model, device, directory, angpix, N_ep
         loss = -torch.sum(fsc)  # 1e-2*f1(lay(coarse_model.pos))
         types = torch.argmax(torch.nn.functional.softmax(
             cons_model.ampvar, dim=0), dim=0)
-        points2xyz(cons_model.pos, '/cephfs/schwab/approximation/positions' +
-                   str(i).zfill(3), box_size, angpix, types)
+        write_xyz(cons_model.pos, '/cephfs/schwab/approximation/positions' +
+                  str(i).zfill(3), box_size, angpix, types)
         # print(torch.nn.functional.mse_loss(V[0],V0.detach()).detach())
         # print(f1(lay(coarse_model.pos)).detach())
         loss.backward()
@@ -1428,3 +1410,20 @@ def scatter_mean_sub(src, inds, dim=-1):
     ones = torch.ones(inds.size(), dtype=src.dtype, device=src.device)
     count = scatter_sub(ones, inds, dim)
     return out_sum/count
+
+
+def calculate_grid_oversampling_factor(box_size: int) -> int:
+    """Calculate a grid oversampling factor for rendering gaussians.
+
+    Rendering gaussians on a grid is done by projecting the
+    gaussian down into 2D and 'spreading' values which sum up to 1 over the
+    nearest four pixels. Values for each pixel are calculated by
+    bilinear interpolation.
+    """
+    if box_size < 100:
+        grid_oversampling_factor = 3
+    if box_size < 300 and box_size > 99:
+        grid_oversampling_factor = 2
+    if box_size > 299:
+        grid_oversampling_factor = 1
+    return grid_oversampling_factor
