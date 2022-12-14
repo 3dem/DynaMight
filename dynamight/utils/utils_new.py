@@ -681,7 +681,6 @@ def write_xyz(
             f.write("%s %.18g %.18g %.18g\n" % (atom, x[0], x[1], x[2]))
 
 
-
 def graph2bild(points, edge_index, title, color=5):
 
     points = points.detach().cpu().numpy()
@@ -1427,3 +1426,14 @@ def calculate_grid_oversampling_factor(box_size: int) -> int:
     if box_size > 299:
         grid_oversampling_factor = 1
     return grid_oversampling_factor
+
+
+def generate_data_normalization_mask(box_size, dampening_factor):
+    """ Multiplies with exponential decay"""
+
+    xx = torch.tensor(np.linspace(-1, 1, box_size, endpoint=False))
+    XX, YY = torch.meshgrid(xx, xx)
+    BF = torch.fft.fftshift(
+        torch.exp(-(apply_bfactor * (XX ** 2 + YY ** 2))), dim=[-1, -2]).to(
+        device)
+    return BF
