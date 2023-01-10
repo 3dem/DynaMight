@@ -41,8 +41,9 @@ def initialize_points_from_binary_volume(
     points = []
     sidelength = volume.shape[0]
     while len(points) < n_points:
-        random_points = torch.FloatTensor(n_points, 3).uniform_(0, sidelength-1)
-        idx = torch.round(random_points)
+        random_points = torch.FloatTensor(
+            n_points, 3).uniform_(0, sidelength-1)
+        idx = torch.round(random_points).long()
         valid_points = volume[idx[:, 0], idx[:, 1], idx[:, 2]] == 1
         random_points /= (sidelength - 1)  # [0, 1]
         random_points -= 0.5  # [-0.5, 0.5]
@@ -61,4 +62,3 @@ def initialize_points_from_volume(
 ) -> torch.Tensor:
     """Place points randomly within a volume in regions above a given threshold."""
     return initialize_points_from_binary_volume(volume > threshold, n_points)
-

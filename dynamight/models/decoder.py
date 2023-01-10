@@ -46,6 +46,7 @@ class DisplacementDecoder(torch.nn.Module):
         self.device = device
         self.latent_dim = n_latent_dims
         self.box_size = box_size
+        self.vol_box = box_size
         self.n_points = n_points
         self.pos_enc_dim = pos_enc_dim
         self.mask = mask
@@ -55,7 +56,8 @@ class DisplacementDecoder(torch.nn.Module):
         n_input_neurons = n_latent_dims + 3 if pos_enc_dim == 0 else 6 * pos_enc_dim
 
         # fully connected network stuff
-        self.input = nn.Linear(n_input_neurons, n_neurons_per_layer, bias=False)
+        self.input = nn.Linear(
+            n_input_neurons, n_neurons_per_layer, bias=False)
         self.layers = self.make_layers(n_neurons_per_layer, n_layers)
         self.output = torch.nn.Sequential(
             nn.Linear(n_neurons_per_layer, 3, bias=False),
@@ -68,14 +70,16 @@ class DisplacementDecoder(torch.nn.Module):
 
         # todo: fuse Points2Images and FourierImageSmoothier into Imager module
         # ideally two methods, points_to_grid and grid_to_image
-        self.p2i = PointsToImages(self.box_size, n_classes, grid_oversampling_factor)
+        self.p2i = PointsToImages(
+            self.box_size, n_classes, grid_oversampling_factor)
         self.image_smoother = FourierImageSmoother(
             self.box_size, device, n_classes, grid_oversampling_factor
         )
 
         # parameter initialisation
         self.output[-1].weight.data.fill_(0.0)
-        self.model_positions = torch.nn.Parameter(model_positions, requires_grad=True)
+        self.model_positions = torch.nn.Parameter(
+            model_positions, requires_grad=True)
         self.amp = torch.nn.Parameter(
             30 * torch.ones(n_classes, n_points), requires_grad=True
         )
@@ -124,7 +128,8 @@ class DisplacementDecoder(torch.nn.Module):
         displacements = self.output(displacements)
 
         # calculate final positions
-        final_positions = expanded_positions + displacements  # (b, n_gaussians, 3)
+        final_positions = expanded_positions + \
+            displacements  # (b, n_gaussians, 3)
         return final_positions, displacements
 
     # def _update_positions_masked(self, z, positions):
@@ -169,7 +174,7 @@ class DisplacementDecoder(torch.nn.Module):
             amp = torch.tensor([1.0])
             ampvar = torch.tensor([1.0])
 
-        batch_size = z.shape[0]
+        self.batch_size = z.shape[0]
 
         if self.mask is None:
             updated_positions, displacements = self._update_positions_unmasked(
@@ -213,7 +218,8 @@ class DisplacementDecoder(torch.nn.Module):
         for i in tqdm(range(n_epochs)):
             optimizer.zero_grad()
             V = self.generate_consensus_volume()
-            loss = torch.nn.functional.mse_loss(V[0], reference_volume)
+            loss = torch.nn.functional.mse_loss(
+                V[0].float(), reference_volume.to(V.device))
             loss.backward()
             optimizer.step()
         print('Final error:', loss.item())
@@ -229,17 +235,19 @@ class DisplacementDecoder(torch.nn.Module):
             vol_box = self.box_size // 2
         else:
             vol_box = self.box_size
+        self.batch_size = 2
         p2v = PointsToVolumes(vol_box, self.n_classes)
         amplitudes = torch.stack(
             2 * [torch.nn.functional.softmax(self.ampvar, dim=0)], dim=0
         ) * self.amp.to(self.device)
-        volume = p2v(positions=self.model_positions, amplitudes=amplitudes)
+        volume = p2v(positions=torch.stack(
+            2*[self.model_positions], 0), amplitudes=amplitudes)
         volume = torch.fft.fftn(volume, dim=[-3, -2, -1])
         R, M = radial_index_mask3(self.vol_box)
         R = torch.stack(self.image_smoother.n_classes * [R.to(self.device)], 0)
         FF = torch.exp(-self.image_smoother.B[:, None, None,
-                        None] ** 2 * R) * self.image_smoother.A[:, None, None,
-                                          None] ** 2
+                                              None] ** 2 * R) * self.image_smoother.A[:, None, None,
+                                                                                      None] ** 2
         bs = 2
         Filts = torch.stack(bs * [FF], 0)
         Filts = torch.fft.ifftshift(Filts, dim=[-3, -2, -1])
@@ -265,10 +273,10 @@ class DisplacementDecoder(torch.nn.Module):
         R, M = radial_index_mask3(self.vol_box)
         R = torch.stack(self.image_smoother.n_classes * [R.to(self.device)], 0)
         FF = torch.exp(-self.image_smoother.B[:, None, None,
-                        None] ** 2 * R) * self.image_smoother.A[
-                                          :, None,
-                                          None,
-                                          None] ** 2
+                                              None] ** 2 * R) * self.image_smoother.A[
+            :, None,
+            None,
+            None] ** 2
         bs = V.shape[0]
         Filts = torch.stack(bs * [FF], 0)
         Filts = torch.fft.ifftshift(Filts, dim=[-3, -2, -1])

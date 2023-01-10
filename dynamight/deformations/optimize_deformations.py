@@ -210,7 +210,7 @@ def optimize_deformations(
         if consensus_update_rate == None:
             consensus_update_rate = 0
 
-    if initialization_mode in (ConsensusInitializationMode.MODEL,
+    if initialization_mode in (ConsensusInitializationMode.MAP,
                                ConsensusInitializationMode.EMPTY):
         n_points = n_gaussians
 
@@ -228,6 +228,8 @@ def optimize_deformations(
                 Ivols = torch.nn.functional.avg_pool3d(
                     Ivol[None, None], (2, 2, 2))
                 Ivols = Ivols[0, 0]
+            else:
+                Ivols = Ivol
             th = compute_threshold(Ivol)
             print('Setting threshold for the initialization to:', th)
             initial_points = initialize_points_from_volume(
@@ -235,7 +237,6 @@ def optimize_deformations(
                 threshold=initial_threshold,
                 n_points=n_points,
             )
-
 
     # define optimisation parameters
 
