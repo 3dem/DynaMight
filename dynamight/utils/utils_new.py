@@ -206,10 +206,11 @@ def distance_activation(d, distance):
 '-----------------------------------------------------------------------------'
 
 
-class point_projection(nn.Module):
+class PointProjector(nn.Module):
+    """Projects multi-class points from 3D to 2D."""
    # for angle ordering [TILT,ROT,PSI]
     def __init__(self, box_size):
-        super(point_projection, self).__init__()
+        super(PointProjector, self).__init__()
         self.box_size = box_size
 
     def forward(self, p, rr):
@@ -271,10 +272,10 @@ class point_projection(nn.Module):
         return points2[:, ind, :]
 
 
-class points2mult_image(nn.Module):
-
+class PointsToImages(nn.Module):
+    """Renders a batch of images from a multi-class point cloud."""
     def __init__(self, box_size, n_classes, oversampling=1):
-        super(points2mult_image, self).__init__()
+        super(PointsToImages, self).__init__()
         self.box_size = box_size
         self.n_classes = n_classes
         self.os = oversampling
@@ -314,6 +315,7 @@ class points2mult_image(nn.Module):
 
 
 def initialize_consensus(model, ref, logdir, lr=0.001, n_epochs=300, mask=None):
+    """deprecate"""
     device = model.device
     model_params = model.parameters()
     model_optimizer = torch.optim.Adam(model_params, lr=lr)
@@ -323,7 +325,7 @@ def initialize_consensus(model, ref, logdir, lr=0.001, n_epochs=300, mask=None):
     print('Initializing gaussian positions from reference deformable_backprojection')
     for i in tqdm(range(n_epochs)):
         model_optimizer.zero_grad()
-        V = model.volume(r0.to(device), t0.to(device)).float()
+        V = model.generate_volume(r0.to(device), t0.to(device)).float()
         #fsc,res=FSC(ref,V[0],1,visualize = False)
         loss = torch.nn.functional.mse_loss(
             V[0], ref)  # +1e-7*f1(lay(model.pos))
@@ -334,10 +336,15 @@ def initialize_consensus(model, ref, logdir, lr=0.001, n_epochs=300, mask=None):
         mrc.set_data((V[0]/torch.mean(V[0])).float().detach().cpu().numpy())
 
 
-class ims2F_form(nn.Module):
+class FourierImageSmoother(nn.Module):
+    """Smooths multiclass images in Fourier space.
 
+    Smoothing is performed by multiplication with a gaussian.
+    """
     def __init__(self, box_size, device, n_classes, oversampling=1, A=None, B=None):
-        super(ims2F_form, self).__init__()
+        #  todo: A, B -> widths, amplitudes
+        #  or else...
+        super(FourierImageSmoother, self).__init__()
         self.box_size = box_size
         self.device = device
         self.n_classes = n_classes
@@ -419,7 +426,7 @@ def generate_form_factor(a, b, box_size):
 def find_initialization_parameters(model, V):
     r0 = torch.zeros(2, 3).to(model.device)
     t0 = torch.zeros(2, 2).to(model.device)
-    Vmodel = model.volume(r0, t0)
+    Vmodel = model.generate_volume(r0, t0)
     ratio = torch.sum(V**2)/torch.sum(Vmodel**2)
     # s = torch.linspace(0,0.5,100)
     # a = torch.linspace(0,2*ratio,100)
@@ -451,16 +458,20 @@ def initialize_dataset(
     return dataset, diameter_ang, box_size, ang_pix, optics_group
 
 
-class points2mult_volume(nn.Module):
+class PointsToVolumes(nn.Module):
+    """Renders points as multi-class volumes.
+
+    Points are spread over 8 nearest voxels by trilinear interpolation.
+    """
     def __init__(self, box_size, n_classes):
-        super(points2mult_volume, self).__init__()
+        super(PointsToVolumes, self).__init__()
         self.box_size = box_size
         self.n_classes = n_classes
 
-    def forward(self, points, values):
-        self.batch_size = points.shape[0]
-        device = points.device
-        p = ((points+0.5)*(self.box_size))
+    def forward(self, positions, amplitudes):
+        self.batch_size = positions.shape[0]
+        device = positions.device
+        p = ((positions + 0.5) * (self.box_size))
         vol = torch.zeros(self.batch_size, self.n_classes,
                           self.box_size**3).to(device)
 
@@ -499,11 +510,10 @@ class points2mult_volume(nn.Module):
                         w = (w*valid.type_as(w)).squeeze(2)
                         w = torch.stack(self.n_classes*[w], 1)
 
-                    vol.scatter_add_(2, idx, w*values)
+                    vol.scatter_add_(2, idx, w * amplitudes)
 
         vol = vol.reshape(self.batch_size, self.n_classes,
                           self.box_size, self.box_size, self.box_size)
-
         return vol
 
 
@@ -973,7 +983,7 @@ def FSC(F1, F2, ang_pix=1, visualize=False):
 
 
 def make_color_map(p, mean_dist, kernel, box_size, device, n_classes):
-    p2V = points2mult_volume(box_size, n_classes)
+    p2V = PointsToVolumes(box_size, n_classes)
     p = p.unsqueeze(0)
     mean_dist = mean_dist.unsqueeze(0).to(device)
     Cmap = p2V(p.expand(2, -1, -1), mean_dist.expand(2, -1)).to(device)
@@ -1185,7 +1195,7 @@ def initial_optimization(cons_model, atom_model, device, directory, angpix, N_ep
     z0 = torch.zeros(2, 2)
     r0 = torch.zeros(2, 3)
     t0 = torch.zeros(2, 2)
-    V0 = atom_model.volume(r0.to(device), t0.to(device))
+    V0 = atom_model.generate_volume(r0.to(device), t0.to(device))
     V0 = V0[0].float()
     box_size = V0.shape[0]
     with mrcfile.new(directory+'/optimization_volume.mrc', overwrite=True) as mrc:
@@ -1195,12 +1205,12 @@ def initial_optimization(cons_model, atom_model, device, directory, angpix, N_ep
     coarse_params = cons_model.parameters()
     coarse_optimizer = torch.optim.Adam(coarse_params, lr=0.001)
     cons_model.amp.requires_grad = True
-    V = cons_model.volume(r0.to(device), t0.to(device)).float()
+    V = cons_model.generate_volume(r0.to(device), t0.to(device)).float()
     fsc, res = FSC(V0.detach(), V[0], 1, visualize=False)
 
     for i in tqdm(range(N_epochs)):
         coarse_optimizer.zero_grad()
-        V = cons_model.volume(r0.to(device), t0.to(device)).float()
+        V = cons_model.generate_volume(r0.to(device), t0.to(device)).float()
         fsc, res = FSC(V0.detach(), V[0], 1, visualize=False)
         loss = -torch.sum(fsc)  # 1e-2*f1(lay(coarse_model.pos))
         types = torch.argmax(torch.nn.functional.softmax(
@@ -1224,11 +1234,11 @@ def load_models(path, device, box_size, n_classes):
     encoder_half2 = cp['encoder_half2']
     #cons_model_l = cp['consensus']
     deformation_half1 = cp['decoder_half1']
-    deformation_half1.p2i = points2mult_image(box_size, n_classes, 1)
-    deformation_half1.i2F = ims2F_form(box_size, device, n_classes, 1)
+    deformation_half1.p2i = PointsToImages(box_size, n_classes, 1)
+    deformation_half1.image_smoother = FourierImageSmoother(box_size, device, n_classes, 1)
     deformation_half2 = cp['decoder_half2']
-    deformation_half2.p2i = points2mult_image(box_size, n_classes, 1)
-    deformation_half2.i2F = ims2F_form(box_size, device, n_classes, 1)
+    deformation_half2.p2i = PointsToImages(box_size, n_classes, 1)
+    deformation_half2.image_smoother = FourierImageSmoother(box_size, device, n_classes, 1)
     poses = cp['poses']
     encoder_half1.load_state_dict(cp['encoder_half1_state_dict'])
     encoder_half2.load_state_dict(cp['encoder_half2_state_dict'])
@@ -1240,11 +1250,11 @@ def load_models(path, device, box_size, n_classes):
     deformation_half1.p2i.device = device
     deformation_half2.p2i.device = device
     #cons_model.proj.device = device
-    deformation_half1.proj.device = device
-    deformation_half2.proj.device = device
+    deformation_half1.projector.device = device
+    deformation_half2.projector.device = device
     #cons_model.i2F.device = device
-    deformation_half1.i2F.device = device
-    deformation_half2.i2F.device = device
+    deformation_half1.image_smoother.device = device
+    deformation_half2.image_smoother.device = device
     #cons_model.p2v.device = device
     deformation_half1.p2v.device = device
     deformation_half1.device = device
@@ -1300,14 +1310,14 @@ class spatial_grad(nn.Module):
         return t.size()[1]*t.size()[2]*t.size()[3]
 
 
-def compute_threshold(V):
-    Vmin = torch.min(V)
-    Vmax = torch.max(V)
-    V_norm = torch.sum(V**2)
+def compute_threshold(volume):
+    Vmin = torch.min(volume)
+    Vmax = torch.max(volume)
+    V_norm = torch.sum(volume ** 2)
     lam = torch.linspace(Vmin, Vmax, 100)
     percent = torch.zeros_like(lam)
     for i in range(100):
-        Vi = torch.sum(V[V > lam[i]]**2)
+        Vi = torch.sum(volume[volume > lam[i]] ** 2)
         percent[i] = Vi/V_norm
     th_ind = torch.argmin(torch.abs(percent-0.91))
     return lam[th_ind]

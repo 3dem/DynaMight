@@ -30,6 +30,7 @@ from ..models.decoder import DisplacementDecoder
 from ..models.encoder import HetEncoder
 from ..models.blocks import LinearBlock
 from ..models.pose import PoseModule
+from ..models.utils import initialize_points_from_volume
 from ..utils.utils_new import compute_threshold, initialize_consensus, \
     initialize_dataset, load_models, add_weight_decay, \
     fourier_loss, power_spec2, radial_avg2, geometric_loss, frc, \
@@ -211,38 +212,30 @@ def optimize_deformations(
 
     if initialization_mode in (ConsensusInitializationMode.MODEL,
                                ConsensusInitializationMode.EMPTY):
-        N_points = n_gaussians
+        n_points = n_gaussians
 
     else:
-        N_points = consensus_model.pos.shape[0]
+        n_points = consensus_model.pos.shape[0]
 
     if initialization_mode == ConsensusInitializationMode.EMPTY:
         mode = 'density'
 
     if initialization_mode == ConsensusInitializationMode.MAP:
         mode = 'density'
-        consensus_model = ConsensusModel(
-            box_size, device, N_points, n_classes, grid_oversampling_factor).to(
-            device)
         with mrcfile.open(initial_model) as mrc:
             Ivol = torch.tensor(mrc.data)
             if Ivol.shape[0] > 360:
                 Ivols = torch.nn.functional.avg_pool3d(
                     Ivol[None, None], (2, 2, 2))
                 Ivols = Ivols[0, 0]
-                th = compute_threshold(Ivol)
-                print('Setting threshold for the initialization to:', th)
-                consensus_model.initialize_points(
-                    Ivols.movedim(0, 2).movedim(0, 1), initial_threshold)
-                initialize_consensus(consensus_model, Ivols.to(
-                    device), str(output_directory), n_epochs=50)
-            else:
-                th = compute_threshold(Ivol)
-                print('Setting threshold for the initialization to:', th)
-                consensus_model.initialize_points(
-                    Ivol.movedim(0, 2).movedim(0, 1), initial_threshold)
-                initialize_consensus(consensus_model, Ivol.to(
-                    device), str(output_directory), n_epochs=50)
+            th = compute_threshold(Ivol)
+            print('Setting threshold for the initialization to:', th)
+            initial_points = initialize_points_from_volume(
+                Ivols.movedim(0, 2).movedim(0, 1),
+                threshold=initial_threshold,
+                n_points=n_points,
+            )
+
 
     # define optimisation parameters
 
@@ -253,7 +246,7 @@ def optimize_deformations(
     # LR = 0.0005
     # posLR = 0.0005
 
-    typer.echo(f'Number of used gaussians: {N_points}')
+    typer.echo(f'Number of used gaussians: {n_points}')
 
     try:
         consensus_model.i2F.A = torch.nn.Parameter(torch.linspace(
@@ -262,21 +255,27 @@ def optimize_deformations(
         consensus_model.pos.requires_grad = False
     except:
         consensus_model = ConsensusModel(
-            box_size, device, N_points, n_classes, grid_oversampling_factor).to(
+            box_size, device, n_points, n_classes, grid_oversampling_factor).to(
             device)
 
-    deformation_half1 = DisplacementDecoder(box_size, device, latent_dim,
-                                            N_points, n_classes,
-                                            n_linear_layers,
-                                            n_neurons_per_layer,
-                                            LinearBlock, pos_enc_dim,
-                                            grid_oversampling_factor).to(device)
-    deformation_half2 = DisplacementDecoder(box_size, device, latent_dim,
-                                            N_points, n_classes,
-                                            n_linear_layers,
-                                            n_neurons_per_layer,
-                                            LinearBlock, pos_enc_dim,
-                                            grid_oversampling_factor).to(device)
+    decoder_kwargs = {
+        'box_size': box_size,
+        'device': device,
+        'n_latent_dims': latent_dim,
+        'n_points': n_points,
+        'n_classes': n_classes,
+        'n_layers': n_linear_layers,
+        'n_neurons_per_layer': n_neurons_per_layer,
+        'block': LinearBlock,
+        'pos_enc_dim': pos_enc_dim,
+        'grid_oversampling_factor': grid_oversampling_factor,
+        'model_positions': initial_points
+
+    }
+    deformation_half1 = DisplacementDecoder(**decoder_kwargs).to(device)
+    deformation_half2 = DisplacementDecoder(**decoder_kwargs).to(device)
+    for decoder in (deformation_half1, deformation_half2):
+        decoder.initialize_physical_parameters(reference_volume=Ivol)
     encoder_half1 = HetEncoder(box_size, latent_dim, 1).to(device)
     encoder_half2 = HetEncoder(box_size, latent_dim, 1).to(device)
 
@@ -308,9 +307,9 @@ def optimize_deformations(
     else:
         cons_optimizer = torch.optim.Adam([consensus_model.ampvar], lr=posLR)
 
-    mean_dist = torch.zeros(N_points)
-    mean_dist_half1 = torch.zeros(N_points)
-    mean_dist_half2 = torch.zeros(N_points)
+    mean_dist = torch.zeros(n_points)
+    mean_dist_half1 = torch.zeros(n_points)
+    mean_dist_half2 = torch.zeros(n_points)
 
     BF = generate_data_normalization_mask(box_size, apply_bfactor)
 
@@ -338,8 +337,8 @@ def optimize_deformations(
             cons_dis = torch.pow(
                 torch.sum((pos[gr1[0]] - pos[gr1[1]]) ** 2, 1), 0.5)
             distance = 0
-            deformation_half1.i2F.B.requires_grad = False
-            deformation_half2.i2F.B.requires_grad = False
+            deformation_half1.image_smoother.B.requires_grad = False
+            deformation_half2.image_smoother.B.requires_grad = False
             consensus_model.i2F.B.requires_grad = False
         else:
             pos = consensus_model.pos * box_size * ang_pix
@@ -434,13 +433,13 @@ def optimize_deformations(
 
         if epoch == n_warmup_epochs and initialization_mode != \
                 ConsensusInitializationMode.EMPTY:
-            deformation_half1.i2F.A = torch.nn.Parameter(
+            deformation_half1.image_smoother.A = torch.nn.Parameter(
                 consensus_model.i2F.A.to(device), requires_grad=True)
-            deformation_half1.i2F.B = torch.nn.Parameter(
+            deformation_half1.image_smoother.B = torch.nn.Parameter(
                 consensus_model.i2F.B.to(device), requires_grad=True)
-            deformation_half2.i2F.A = torch.nn.Parameter(
+            deformation_half2.image_smoother.A = torch.nn.Parameter(
                 consensus_model.i2F.A.to(device), requires_grad=True)
-            deformation_half2.i2F.B = torch.nn.Parameter(
+            deformation_half2.image_smoother.B = torch.nn.Parameter(
                 consensus_model.i2F.B.to(device), requires_grad=True)
             dec_half1_params = deformation_half1.parameters()
             dec_half2_params = deformation_half2.parameters()
@@ -451,13 +450,13 @@ def optimize_deformations(
             cons_optimizer = torch.optim.Adam(cons_params, lr=LR)
         elif epoch == n_warmup_epochs and initialization_mode == \
                 ConsensusInitializationMode.EMPTY:
-            deformation_half1.i2F.A = torch.nn.Parameter(
+            deformation_half1.image_smoother.A = torch.nn.Parameter(
                 consensus_model.i2F.A.to(device), requires_grad=True)
-            deformation_half1.i2F.B = torch.nn.Parameter(
+            deformation_half1.image_smoother.B = torch.nn.Parameter(
                 consensus_model.i2F.B.to(device), requires_grad=True)
-            deformation_half2.i2F.A = torch.nn.Parameter(
+            deformation_half2.image_smoother.A = torch.nn.Parameter(
                 consensus_model.i2F.A.to(device), requires_grad=True)
-            deformation_half2.i2F.B = torch.nn.Parameter(
+            deformation_half2.image_smoother.B = torch.nn.Parameter(
                 consensus_model.i2F.B.to(device), requires_grad=True)
             dec_half1_params = deformation_half1.parameters()
             dec_half2_params = deformation_half2.parameters()
@@ -1068,9 +1067,9 @@ def optimize_deformations(
             ff = generate_form_factor(
                 consensus_model.i2F.A, consensus_model.i2F.B, box_size)
             ff2 = generate_form_factor(
-                deformation_half1.i2F.A, deformation_half1.i2F.B, box_size)
+                deformation_half1.image_smoother.A, deformation_half1.image_smoother.B, box_size)
             ff2b = generate_form_factor(
-                deformation_half2.i2F.A, deformation_half1.i2F.B, box_size)
+                deformation_half2.image_smoother.A, deformation_half1.image_smoother.B, box_size)
             FF = np.concatenate([ff, ff2, ff2b], 1)
             correct_spec = prof2radim(consensus_model.W)
             WW = torch.fft.fftshift(correct_spec, dim=[-2, -1])
@@ -1135,10 +1134,10 @@ def optimize_deformations(
             else:
                 summ.add_scalar(
                     "Loss/variance1a",
-                    deformation_half1.i2F.B[0].detach().cpu(), epoch)
+                    deformation_half1.image_smoother.B[0].detach().cpu(), epoch)
                 summ.add_scalar(
                     "Loss/variance2a",
-                    deformation_half2.i2F.B[0].detach().cpu(), epoch)
+                    deformation_half2.image_smoother.B[0].detach().cpu(), epoch)
 
             summ.add_figure("Data/cons_amp",
                             tensor_plot(consensus_model.amp.detach()), epoch)

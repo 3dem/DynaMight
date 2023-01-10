@@ -1,7 +1,7 @@
 import torch
 import torch.nn
 
-from dynamight.utils.utils_new import point_projection, points2mult_image, ims2F_form, points2mult_volume, \
+from dynamight.utils.utils_new import PointProjector, PointsToImages, FourierImageSmoother, PointsToVolumes, \
     fourier_shift_2d, radial_index_mask3
 
 
@@ -27,16 +27,16 @@ class ConsensusModel(torch.nn.Module):
         # self.ampvar = torch.nn.Parameter(torch.rand(n_classes,n_points),requires_grad=True)
         self.ampvar = torch.nn.Parameter(0.5 * torch.randn(n_classes, n_points), requires_grad=True)
         # self.ampvar = torch.nn.Parameter(torch.rand(n_classes,n_points),requires_grad=True)
-        self.proj = point_projection(self.box_size)
-        self.p2i = points2mult_image(self.box_size, n_classes, grid_oversampling)
-        self.i2F = ims2F_form(self.box_size, device, n_classes, grid_oversampling)
+        self.proj = PointProjector(self.box_size)
+        self.p2i = PointsToImages(self.box_size, n_classes, grid_oversampling)
+        self.i2F = FourierImageSmoother(self.box_size, device, n_classes, grid_oversampling)
         self.W = torch.nn.Parameter(torch.ones(box_size // 2), requires_grad=True)
         self.device = device
         if box_size > 360:
             self.vol_box = box_size // 2
         else:
             self.vol_box = box_size
-        self.p2v = points2mult_volume(self.vol_box, n_classes)
+        self.p2v = PointsToVolumes(self.vol_box, n_classes)
 
     def forward(self, r, shift):
         self.batch_size = r.shape[0]
