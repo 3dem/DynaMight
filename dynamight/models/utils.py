@@ -31,3 +31,34 @@ def positional_encoding(
     c = torch.cos(k)
     x = torch.cat([s, c], -1)
     return x.flatten(-2)
+
+
+def initialize_points_from_binary_volume(
+    volume: torch.Tensor,
+    n_points: int,
+) -> torch.Tensor:
+    """Place points randomly within a binary volume."""
+    points = []
+    sidelength = volume.shape[0]
+    while len(points) < n_points:
+        random_points = torch.FloatTensor(n_points, 3).uniform_(0, sidelength-1)
+        idx = torch.round(random_points)
+        valid_points = volume[idx[:, 0], idx[:, 1], idx[:, 2]] == 1
+        random_points /= (sidelength - 1)  # [0, 1]
+        random_points -= 0.5  # [-0.5, 0.5]
+        random_points = random_points[valid_points]
+        if len(points) > 0:
+            points = torch.cat([points, random_points], dim=0)
+        else:
+            points = random_points
+    return points[:n_points]
+
+
+def initialize_points_from_volume(
+    volume: torch.Tensor,
+    threshold: float,
+    n_points: int,
+) -> torch.Tensor:
+    """Place points randomly within a volume in regions above a given threshold."""
+    return initialize_points_from_binary_volume(volume > threshold, n_points)
+

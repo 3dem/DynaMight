@@ -115,10 +115,10 @@ def explore_latent_space(
 
     cons_model.p2i.device = device
     decoder.p2i.device = device
-    cons_model.proj.device = device
-    decoder.proj.device = device
-    cons_model.i2F.device = device
-    decoder.i2F.device = device
+    cons_model.projector.device = device
+    decoder.projector.device = device
+    cons_model.image_smoother.device = device
+    decoder.image_smoother.device = device
     cons_model.p2v.device = device
     decoder.p2v.device = device
     decoder.device = device
@@ -286,7 +286,7 @@ def explore_latent_space(
 
     r = torch.zeros([2, 3])
     t = torch.zeros([2, 2])
-    cons_volume = cons_model.volume(r.to(device), t.to(device))
+    cons_volume = cons_model.generate_volume(r.to(device), t.to(device))
     cons_volume = cons_volume[0].detach().cpu().numpy()
 
     nap_cons_pos = (0.5 + cons_model.pos.detach().cpu()) * box_size
@@ -296,10 +296,10 @@ def explore_latent_space(
         [nap_cons_pos[:, 0], nap_cons_pos[:, 3], nap_cons_pos[:, 2], nap_cons_pos[:, 1]], 1)
 
     with torch.no_grad():
-        V0 = decoder.volume([torch.zeros(2, latent_dim).to(device)], r.to(device),
-                            cons_model.pos.to(
+        V0 = decoder.generate_volume([torch.zeros(2, latent_dim).to(device)], r.to(device),
+                                     cons_model.pos.to(
                                 device), cons_model.amp.to(device),
-                            cons_model.ampvar.to(device), t.to(device)).float()
+                                     cons_model.ampvar.to(device), t.to(device)).float()
 
     amps = cons_model.amp.detach().cpu()
     amps = amps[0]
@@ -540,10 +540,10 @@ def explore_latent_space(
             lat = torch.stack(2 * [torch.tensor(lat_coord)], 0)
 
             if self.rep_menu.current_choice == 'volume':
-                vol = self.decoder.volume([lat.to(device)], self.r.to(device),
-                                          self.cons_model.pos.to(device),
-                                          self.cons_model.amp.to(device),
-                                          self.cons_model.ampvar.to(device), self.t.to(device)).float()
+                vol = self.decoder.generate_volume([lat.to(device)], self.r.to(device),
+                                                   self.cons_model.pos.to(device),
+                                                   self.cons_model.amp.to(device),
+                                                   self.cons_model.ampvar.to(device), self.t.to(device)).float()
                 self.vol_layer.data = (
                     vol[0] / torch.max(vol[0])).detach().cpu().numpy()
             elif self.rep_menu.current_choice == 'points':
@@ -585,10 +585,10 @@ def explore_latent_space(
                 for i in tqdm(range(path.shape[0] // 2)):
                     mu = path[i:i + 2].float()
                     with torch.no_grad():
-                        V = self.decoder.volume([mu.to(device)], self.r.to(device),
-                                                self.cons_model.pos.to(device),
-                                                self.cons_model.amp.to(device),
-                                                self.cons_model.ampvar.to(device), self.t.to(device))
+                        V = self.decoder.generate_volume([mu.to(device)], self.r.to(device),
+                                                         self.cons_model.pos.to(device),
+                                                         self.cons_model.amp.to(device),
+                                                         self.cons_model.ampvar.to(device), self.t.to(device))
                         if atomic_model != None:
                             proj, proj_im, proj_pos, pos, dis = self.decoder.forward([mu.to(device)],
                                                                                      self.r.to(
