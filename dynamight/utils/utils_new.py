@@ -1026,7 +1026,10 @@ def select_subset(starfile, subset_indices, outname):
             output.close()
 
 
-def add_weight_decay(model, weight_decay=1e-5):
+def add_weight_decay_to_named_parameters(
+    model: torch.nn.Module, decay: float = 1e-5
+) -> torch.nn.ParameterList:
+    """Adding weight decay to weights, not biases"""
     decay = []
     no_decay = []
     for name, param in model.named_parameters():
@@ -1038,7 +1041,8 @@ def add_weight_decay(model, weight_decay=1e-5):
             decay.append(param)
     return [
         {'params': no_decay, 'weight_decay': 0.},
-        {'params': decay, 'weight_decay': weight_decay}]
+        {'params': decay, 'weight_decay': decay}
+    ]
 
 
 def pdb2points(name, random=False):
@@ -1237,41 +1241,41 @@ def load_models(path, device, box_size, n_classes):
     encoder_half1 = cp['encoder_half1']
     encoder_half2 = cp['encoder_half2']
     #cons_model_l = cp['consensus']
-    deformation_half1 = cp['decoder_half1']
-    deformation_half1.p2i = PointsToImages(box_size, n_classes, 1)
-    deformation_half1.image_smoother = FourierImageSmoother(
+    decoder_half1 = cp['decoder_half1']
+    decoder_half1.p2i = PointsToImages(box_size, n_classes, 1)
+    decoder_half1.image_smoother = FourierImageSmoother(
         box_size, device, n_classes, 1)
-    deformation_half2 = cp['decoder_half2']
-    deformation_half2.p2i = PointsToImages(box_size, n_classes, 1)
-    deformation_half2.image_smoother = FourierImageSmoother(
+    decoder_half2 = cp['decoder_half2']
+    decoder_half2.p2i = PointsToImages(box_size, n_classes, 1)
+    decoder_half2.image_smoother = FourierImageSmoother(
         box_size, device, n_classes, 1)
     poses = cp['poses']
     encoder_half1.load_state_dict(cp['encoder_half1_state_dict'])
     encoder_half2.load_state_dict(cp['encoder_half2_state_dict'])
     # cons_model.load_state_dict(cp['consensus_state_dict'])
-    deformation_half1.load_state_dict(cp['decoder_half1_state_dict'])
-    deformation_half2.load_state_dict(cp['decoder_half2_state_dict'])
+    decoder_half1.load_state_dict(cp['decoder_half1_state_dict'])
+    decoder_half2.load_state_dict(cp['decoder_half2_state_dict'])
     poses.load_state_dict(cp['poses_state_dict'])
     #cons_model.p2i.device = device
-    deformation_half1.p2i.device = device
-    deformation_half2.p2i.device = device
+    decoder_half1.p2i.device = device
+    decoder_half2.p2i.device = device
     #cons_model.proj.device = device
-    deformation_half1.projector.device = device
-    deformation_half2.projector.device = device
+    decoder_half1.projector.device = device
+    decoder_half2.projector.device = device
     #cons_model.i2F.device = device
-    deformation_half1.image_smoother.device = device
-    deformation_half2.image_smoother.device = device
+    decoder_half1.image_smoother.device = device
+    decoder_half2.image_smoother.device = device
     #cons_model.p2v.device = device
-    deformation_half1.p2v.device = device
-    deformation_half1.device = device
-    deformation_half2.p2v.device = device
-    deformation_half2.device = device
+    decoder_half1.p2v.device = device
+    decoder_half1.device = device
+    decoder_half2.p2v.device = device
+    decoder_half2.device = device
     #cons_model.device = device
-    deformation_half1.to(device)
-    deformation_half2.to(device)
+    decoder_half1.to(device)
+    decoder_half2.to(device)
     # cons_model.to(device)
 
-    return encoder_half1, encoder_half2, deformation_half1, deformation_half2
+    return encoder_half1, encoder_half2, decoder_half1, decoder_half2
 
 
 def reset_all_linear_layer_weights(model: nn.Module) -> nn.Module:
@@ -1437,8 +1441,7 @@ def calculate_grid_oversampling_factor(box_size: int) -> int:
 
 
 def generate_data_normalization_mask(box_size, dampening_factor, device):
-    """ Multiplies with exponential decay"""
-
+    """Multiplies with exponential decay"""
     xx = torch.tensor(np.linspace(-1, 1, box_size, endpoint=False))
     XX, YY = torch.meshgrid(xx, xx)
     BF = torch.fft.fftshift(

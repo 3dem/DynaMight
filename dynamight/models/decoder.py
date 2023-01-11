@@ -206,14 +206,7 @@ class DisplacementDecoder(torch.nn.Module):
         lr: float = 0.001,
         n_epochs: int = 300,
     ):
-        physical_parameters = [
-            self.model_positions,
-            self.amp,
-            self.ampvar,
-            self.image_smoother.A,
-            self.image_smoother.B,
-        ]
-        optimizer = torch.optim.Adam(physical_parameters, lr=lr)
+        optimizer = torch.optim.Adam(self.physical_parameters, lr=lr)
         print(
             'Initializing gaussian positions from reference deformable_backprojection')
         for i in tqdm(range(n_epochs)):
@@ -224,6 +217,27 @@ class DisplacementDecoder(torch.nn.Module):
             loss.backward()
             optimizer.step()
         print('Final error:', loss.item())
+
+    @property
+    def physical_parameters(self) -> torch.nn.ParameterList:
+        """Parameters which make up a coordinate model."""
+        params = [
+            self.model_positions,
+            self.amp,
+            self.ampvar,
+            self.image_smoother.A,
+            self.image_smoother.B,
+        ]
+        return params
+
+    @property
+    def network_parameters(self) -> List[torch.nn.Parameter]:
+        """Parameters which are not physically meaninful in a coordinate model."""
+        network_params = [
+            param for param in self.parameters()
+            if param not in self.physical_parameters
+        ]
+        return network_params
 
     def make_layers(self, n_neurons, n_layers):
         layers = []

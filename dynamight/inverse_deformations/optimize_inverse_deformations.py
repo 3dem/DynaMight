@@ -10,7 +10,7 @@ from ..data.handlers.particle_image_preprocessor import \
     ParticleImagePreprocessor
 from ..models.blocks import LinearBlock
 from ..models.decoder import InverseDisplacementDecoder
-from ..utils.utils_new import initialize_dataset, add_weight_decay
+from ..utils.utils_new import initialize_dataset, add_weight_decay_to_named_parameters
 
 from .._cli import cli
 
@@ -157,8 +157,8 @@ def optimize_inverse_deformations(
                                            LinearBlock, 6, box_size).to(device)
     inv_half1_params = inv_half1.parameters()
     inv_half2_params = inv_half2.parameters()
-    inv_half1_params = add_weight_decay(inv_half1, weight_decay=0.3)
-    inv_half2_params = add_weight_decay(inv_half2, weight_decay=0.3)
+    inv_half1_params = add_weight_decay_to_named_parameters(inv_half1, decay=0.3)
+    inv_half2_params = add_weight_decay_to_named_parameters(inv_half2, decay=0.3)
     inv_half1_optimizer = torch.optim.Adam(inv_half1_params, lr=5e-4)
     inv_half2_optimizer = torch.optim.Adam(inv_half2_params, lr=5e-4)
 
