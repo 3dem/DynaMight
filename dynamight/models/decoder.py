@@ -53,7 +53,8 @@ class DisplacementDecoder(torch.nn.Module):
         self.block = block  # block type can be LinearBlock or ResBlock
         self.activation = torch.nn.ELU()
         self.n_classes = n_classes
-        n_input_neurons = n_latent_dims + 3 if pos_enc_dim == 0 else 6 * pos_enc_dim
+        n_input_neurons = n_latent_dims + \
+            3 if pos_enc_dim == 0 else 6 * pos_enc_dim + n_latent_dims
 
         # fully connected network stuff
         self.input = nn.Linear(
@@ -106,18 +107,18 @@ class DisplacementDecoder(torch.nn.Module):
 
         # expand original positions to match batch side (used as residual)
         expanded_positions = positions.expand(
-            self.z_batch_size, positions.shape[0], dim=3
+            self.batch_size, positions.shape[0], 3
         )
 
         # expand encoded positions to match batch size
         expanded_encoded_positions = encoded_positions.expand(
-            self.z_batch_size,
+            self.batch_size,
             encoded_positions.shape[0],
             encoded_positions.shape[1],
         )
 
         # expand latent code to (b, n_positions, n_latent_dimensions)
-        conf_feat = z[0].unsqueeze(1).expand(-1, positions.shape[0], -1)
+        conf_feat = z.unsqueeze(1).expand(-1, positions.shape[0], -1)
 
         # concatenate positional encoded positions with expanded latent code
         x = torch.cat([expanded_encoded_positions, conf_feat], dim=2)
@@ -168,8 +169,8 @@ class DisplacementDecoder(torch.nn.Module):
         """Decode latent variable into coordinate model and make a projection image."""
         if positions is None:
             positions = self.model_positions
-            amp = self.model_amplitudes
-            ampvar = self.model_amplitude_variances
+            amp = self.amp
+            ampvar = self.ampvar
         else:
             amp = torch.tensor([1.0])
             ampvar = torch.tensor([1.0])
@@ -189,7 +190,7 @@ class DisplacementDecoder(torch.nn.Module):
         # turn points into images
         projected_positions = self.projector(updated_positions, orientation)
         weighted_amplitudes = torch.stack(
-            batch_size * [amp * F.softmax(ampvar, dim=0)], dim=0
+            self.batch_size * [amp * F.softmax(ampvar, dim=0)], dim=0
         )  # (b, n_points, n_gaussian_widths)
         weighted_amplitudes.to(self.device)
         projection_images = self.p2i(projected_positions, weighted_amplitudes)

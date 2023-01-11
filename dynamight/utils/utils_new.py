@@ -209,6 +209,7 @@ def distance_activation(d, distance):
 class PointProjector(nn.Module):
     """Projects multi-class points from 3D to 2D."""
    # for angle ordering [TILT,ROT,PSI]
+
     def __init__(self, box_size):
         super(PointProjector, self).__init__()
         self.box_size = box_size
@@ -274,6 +275,7 @@ class PointProjector(nn.Module):
 
 class PointsToImages(nn.Module):
     """Renders a batch of images from a multi-class point cloud."""
+
     def __init__(self, box_size, n_classes, oversampling=1):
         super(PointsToImages, self).__init__()
         self.box_size = box_size
@@ -341,6 +343,7 @@ class FourierImageSmoother(nn.Module):
 
     Smoothing is performed by multiplication with a gaussian.
     """
+
     def __init__(self, box_size, device, n_classes, oversampling=1, A=None, B=None):
         #  todo: A, B -> widths, amplitudes
         #  or else...
@@ -463,6 +466,7 @@ class PointsToVolumes(nn.Module):
 
     Points are spread over 8 nearest voxels by trilinear interpolation.
     """
+
     def __init__(self, box_size, n_classes):
         super(PointsToVolumes, self).__init__()
         self.box_size = box_size
@@ -1235,10 +1239,12 @@ def load_models(path, device, box_size, n_classes):
     #cons_model_l = cp['consensus']
     deformation_half1 = cp['decoder_half1']
     deformation_half1.p2i = PointsToImages(box_size, n_classes, 1)
-    deformation_half1.image_smoother = FourierImageSmoother(box_size, device, n_classes, 1)
+    deformation_half1.image_smoother = FourierImageSmoother(
+        box_size, device, n_classes, 1)
     deformation_half2 = cp['decoder_half2']
     deformation_half2.p2i = PointsToImages(box_size, n_classes, 1)
-    deformation_half2.image_smoother = FourierImageSmoother(box_size, device, n_classes, 1)
+    deformation_half2.image_smoother = FourierImageSmoother(
+        box_size, device, n_classes, 1)
     poses = cp['poses']
     encoder_half1.load_state_dict(cp['encoder_half1_state_dict'])
     encoder_half2.load_state_dict(cp['encoder_half2_state_dict'])
@@ -1310,17 +1316,9 @@ class spatial_grad(nn.Module):
         return t.size()[1]*t.size()[2]*t.size()[3]
 
 
-def compute_threshold(volume):
-    Vmin = torch.min(volume)
-    Vmax = torch.max(volume)
-    V_norm = torch.sum(volume ** 2)
-    lam = torch.linspace(Vmin, Vmax, 100)
-    percent = torch.zeros_like(lam)
-    for i in range(100):
-        Vi = torch.sum(volume[volume > lam[i]] ** 2)
-        percent[i] = Vi/V_norm
-    th_ind = torch.argmin(torch.abs(percent-0.91))
-    return lam[th_ind]
+def compute_threshold(V):
+    th = np.percentile(V.flatten().cpu(), 99)
+    return th
 
 
 def bernstein_poly(i, n, t):
@@ -1438,12 +1436,12 @@ def calculate_grid_oversampling_factor(box_size: int) -> int:
     return grid_oversampling_factor
 
 
-def generate_data_normalization_mask(box_size, dampening_factor):
+def generate_data_normalization_mask(box_size, dampening_factor, device):
     """ Multiplies with exponential decay"""
 
     xx = torch.tensor(np.linspace(-1, 1, box_size, endpoint=False))
     XX, YY = torch.meshgrid(xx, xx)
     BF = torch.fft.fftshift(
-        torch.exp(-(apply_bfactor * (XX ** 2 + YY ** 2))), dim=[-1, -2]).to(
+        torch.exp(-(dampening_factor * (XX ** 2 + YY ** 2))), dim=[-1, -2]).to(
         device)
     return BF
