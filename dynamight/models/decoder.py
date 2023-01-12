@@ -10,7 +10,7 @@ from dynamight.models.blocks import LinearBlock
 from dynamight.models.utils import positional_encoding
 from dynamight.utils.utils_new import PointProjector, PointsToImages, \
     FourierImageSmoother, PointsToVolumes, \
-    maskpoints, fourier_shift_2d, radial_index_mask3, radial_index_mask
+    maskpoints, fourier_shift_2d, radial_index_mask3, radial_index_mask, my_knn_graph, my_radius_graph
 
 
 # decoder turns set(s) of points into 2D image(s)
@@ -30,6 +30,7 @@ class DisplacementDecoder(torch.nn.Module):
     def __init__(
         self,
         box_size,
+        ang_pix,
         device,
         n_latent_dims,  # input dimensionality
         n_points,  # number of points to decode to
@@ -46,6 +47,7 @@ class DisplacementDecoder(torch.nn.Module):
         self.device = device
         self.latent_dim = n_latent_dims
         self.box_size = box_size
+        self.ang_pix = ang_pix
         self.vol_box = box_size
         self.n_points = n_points
         self.pos_enc_dim = pos_enc_dim
@@ -87,6 +89,12 @@ class DisplacementDecoder(torch.nn.Module):
         self.ampvar = torch.nn.Parameter(
             0.5 * torch.randn(n_classes, n_points), requires_grad=True
         )
+        # graphs and distances
+        self.neighbour_graph = []
+        self.radius_graph = []
+        self.model_distances = []
+        self.mean_neighbour_distance = []
+        self.loss_mode = []
 
     def _update_positions_unmasked(
         self, z, positions
@@ -217,6 +225,26 @@ class DisplacementDecoder(torch.nn.Module):
             loss.backward()
             optimizer.step()
         print('Final error:', loss.item())
+
+    def compute_neighbour_graph(self):
+        ang_pos = self.model_positions * self.box_size * \
+            self.ang_pix  # positions in angstrom
+        self.neighbour_graph = my_knn_graph(ang_pos, 2, workers=8)
+        neighbour_distances = torch.pow(
+            torch.sum(
+                (ang_pos[self.neighbour_graph[0]] - ang_pos[self.neighbour_graph[1]]) ** 2, dim=1),
+            0.5)
+        self.mean_neighbour_distance = torch.mean(neighbour_distances)
+
+    def compute_radius_graph(self):
+        ang_pos = self.model_positions * self.box_size * \
+            self.ang_pix
+        self.radius_graph = my_radius_graph(ang_pos,
+                                            1.5*self.mean_neighbour_distance, workers=8)
+        self.model_distances = torch.pow(
+            torch.sum(
+                (ang_pos[self.radius_graph[0]] - ang_pos[self.radius_graph[1]]) ** 2, dim=1),
+            0.5)
 
     @property
     def physical_parameters(self) -> torch.nn.ParameterList:

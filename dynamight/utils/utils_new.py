@@ -154,6 +154,7 @@ def geometric_loss(pos, box_size, ang_pix, dist, mode, deformation=None, graph1=
             except:
                 dis = torch.pow(
                     1e-7+torch.sum((pos[:, graph1[0]]-pos[:, graph1[1]])**2, 2), 0.5)
+
             try:
                 diff_dis = torch.abs(dis-deformation)**2
                 deformation_loss = torch.mean(diff_dis)
@@ -1027,7 +1028,7 @@ def select_subset(starfile, subset_indices, outname):
 
 
 def add_weight_decay_to_named_parameters(
-    model: torch.nn.Module, decay: float = 1e-5
+    model: torch.nn.Module, weight_decay: float = 1e-5
 ) -> torch.nn.ParameterList:
     """Adding weight decay to weights, not biases"""
     decay = []
@@ -1041,8 +1042,23 @@ def add_weight_decay_to_named_parameters(
             decay.append(param)
     return [
         {'params': no_decay, 'weight_decay': 0.},
-        {'params': decay, 'weight_decay': decay}
+        {'params': decay, 'weight_decay': weight_decay}
     ]
+
+
+# def add_weight_decay_to_named_parameters(model, weight_decay=1e-5):
+#     decay = []
+#     no_decay = []
+#     for name, param in model.named_parameters():
+#         if not param.requires_grad:
+#             continue
+#         if 'weight' not in name:
+#             no_decay.append(param)
+#         else:
+#             decay.append(param)
+#     return [
+#         {'params': no_decay, 'weight_decay': 0.},
+#         {'params': decay, 'weight_decay': weight_decay}]
 
 
 def pdb2points(name, random=False):
