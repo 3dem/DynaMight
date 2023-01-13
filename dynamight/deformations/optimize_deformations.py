@@ -21,6 +21,7 @@ import typer
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 # from torch_geometric.nn import knn_graph, radius_graph
+from .regularisation import calibrate_regularization_parameter
 from ..data.handlers.particle_image_preprocessor import \
     ParticleImagePreprocessor
 from ..data.dataloaders.relion import RelionDataset
@@ -343,10 +344,14 @@ def optimize_deformations(
             decoder_half1.compute_radius_graph()
             decoder_half2.compute_radius_graph()
 
-            print('mean distance in graph for half 1:', decoder_half1.mean_neighbour_distance.item(
-            ), 'Angstrom ;This distance is also used to construct the initial graph ')
-            print('mean distance in graph for half 2:', decoder_half2.mean_neighbour_distance.item(
-            ), 'Angstrom ;This distance is also used to construct the initial graph ')
+            print('mean distance in graph for half 1:',
+                  decoder_half1.mean_neighbour_distance.item(
+                  ),
+                  'Angstrom ;This distance is also used to construct the initial graph ')
+            print('mean distance in graph for half 2:',
+                  decoder_half2.mean_neighbour_distance.item(
+                  ),
+                  'Angstrom ;This distance is also used to construct the initial graph ')
 
     # assign indices to particles for half set division
     tot_latent_dim = encoder_half1.latent_dim
@@ -422,157 +427,44 @@ def optimize_deformations(
         displacement_variance_h1 = torch.zeros_like(mean_dist_h1)
         displacement_variance_h2 = torch.zeros_like(mean_dist_h2)
 
-        # subset of data used to calculate a regularisation parameter
-        calibration_data = torch.utils.data.Subset(
-            dataset_half1, torch.randint(0, len(dataset_half1), (1000,)))
-        data_loader_cal = DataLoader(
-            dataset=calibration_data,
-            batch_size=batch_size,
-            num_workers=8,
-            shuffle=True,
-            pin_memory=False
-        )
-
-        data_norm = 0
-        print('calibrating loss parameters and data profile')
-
-        # pass data through the encoder and decoder to calibrate the loss
-        # function, this involves calculating two parameters, a data norm and a
-        # geometry norm
-        for batch_ndx, sample in enumerate(data_loader_cal):
-            decoder_half1.zero_grad()
-            encoder_half1.zero_grad()
-            r, y, ctf = sample["rotation"], sample["image"], sample["ctf"]
-            idx = sample['idx']
-            r = angles[idx]
-            shift = shifts[idx]
-
-            y, r, ctf, shift = y.to(device), r.to(
-                device), ctf.to(device), shift.to(device)
-
-            data_preprocessor.set_device(device)
-            y_in = data_preprocessor.apply_square_mask(y)
-            y_in = data_preprocessor.apply_translation(
-                y_in.detach(), -shift[:, 0].detach(), -shift[:, 1].detach())
-            y_in = data_preprocessor.apply_circular_mask(y_in)
-
-            ctf = torch.fft.fftshift(ctf, dim=[-1, -2])
-
-            mu, logsigma = encoder_half1(y_in, ctf)
-            z = mu + torch.exp(0.5 * logsigma) * torch.randn_like(mu)
-            z_in = z
-
-            if epoch < n_warmup_epochs:
-                # Set latent code for consensus reconstruction to zero
-                Proj, P, PP, new_points = consensus_model(r, shift)
-            else:
-                Proj, new_points, deformed_points = decoder_half1(
-                    z_in,
-                    r,
-                    shift.to(device)
-                )
-
-            y = sample["image"].to(device)
-            y = data_preprocessor.apply_circular_mask(y.detach())
-            rec_loss = fourier_loss(
-                Proj.squeeze(), y.squeeze(), ctf.float(), W=data_normalization_mask[None, :, :])
-
-            rec_loss.backward()
-            with torch.no_grad():
-                try:
-                    total_norm = 0
-
-                    for p in decoder_half1.parameters():
-                        if p.requires_grad == True:
-                            param_norm = p.grad.detach().data.norm(2)
-                            total_norm += param_norm.item() ** 2
-                    data_norm += total_norm ** 0.5
-                except:
-                    data_norm = 1
-
-        # compute some error statistics
-        with torch.no_grad():
-            x = Proj
-            yd = torch.fft.fft2(y, dim=[-1, -2], norm='ortho')
-            x = torch.multiply(x, ctf)
-            model_avg, m_a = radial_avg2(x, batch_reduce='mean')
-            data_avg, d_a = radial_avg2(data_normalization_mask[None, :, :] * yd,
-                                        batch_reduce='mean')
-            err_avg, e_a = radial_avg2(
-                (x - data_normalization_mask[None, :, :] * yd) ** 2, batch_reduce='mean')
-            err_im = (x - yd) ** 2
-            err_im_real = torch.real(torch.fft.ifft2(err_im))
-
-        # compute the geometry norm
-        geometry_norm = 0
-        for batch_ndx, sample in enumerate(data_loader_cal):
-            encoder_half1.zero_grad()
-            decoder_half1.zero_grad()
-            angles_op.zero_grad()
-            shifts_op.zero_grad()
-            r, y, ctf = sample["rotation"], sample["image"], sample["ctf"]
-            idx = sample['idx']
-            r = angles[idx]
-            shift = shifts[idx]
-
-            y, r, ctf, shift = y.to(device), r.to(
-                device), ctf.to(device), shift.to(device)
-
-            data_preprocessor.set_device(device)
-            y_in = data_preprocessor.apply_square_mask(y)
-            y_in = data_preprocessor.apply_translation(
-                y_in.detach(), -shift[:, 0].detach(), -shift[:, 1].detach())
-            y_in = data_preprocessor.apply_circular_mask(y_in)
-
-            ctf = torch.fft.fftshift(ctf, dim=[-1, -2])
-
-            mu, logsigma = encoder_half1(y_in, ctf)
-            z = mu + torch.exp(0.5 * logsigma) * torch.randn_like(mu)
-            z_in = z
-
-            if epoch < n_warmup_epochs:  # Set latent code for consensus reconstruction to zero
-                Proj, P, PP, new_points = consensus_model(r, shift)
-                deformed_points = torch.zeros_like(new_points)
-            else:
-                Proj, new_points, deformed_points = decoder_half1(
-                    z_in,
-                    r,
-                    shift.to(
-                        device))
-
-            y = sample["image"].to(device)
-            y = data_preprocessor.apply_circular_mask(y.detach())
-
-            geo_loss = geometric_loss(new_points, box_size, ang_pix, decoder_half1.mean_neighbour_distance,
-                                      deformation=decoder_half1.model_distances, graph1=decoder_half1.radius_graph,
-                                      graph2=decoder_half1.neighbour_graph, mode=decoder_half1.loss_mode)
-            try:
-                geo_loss.backward()
-            except:
-                pass
-            with torch.no_grad():
-                try:
-                    total_norm = 0
-
-                    for p in decoder_half1.parameters():
-                        if p.requires_grad == True:
-                            param_norm = p.grad.detach().data.norm(2)
-                            total_norm += param_norm.item() ** 2
-                        geometry_norm += total_norm ** 0.5
-                except:
-                    geometry_norm = 1
-            prior_norm = geometry_norm
-
-        # actually calculate the regularisation parameter
+        # calculate regularisation parameter as moving average over epochs
         if epoch == 0:
             if initialization_mode == ConsensusInitializationMode.MODEL:
-                lam_reg = 1
+                lambda_regularisation_half1 = 1
+                lambda_regularisation_half2 = 1
             else:
-                lam_reg = 0
+                lambda_regularisation_half1 = 0
+                lambda_regularisation_half2 = 0
         else:
-            lam_reg = regularization_factor * \
-                (0.1 * 0.5 * data_norm / prior_norm + 0.9 * lam_reg)
-        print('new regularization parameter:', lam_reg)
+            previous = lambda_regularisation_half1
+            current = calibrate_regularization_parameter(
+                dataset=dataset_half1,
+                data_preprocessor=data_preprocessor,
+                encoder=encoder_half1,
+                decoder=decoder_half1,
+                particle_shifts=shifts,
+                particle_euler_angles=angles,
+                data_normalization_mask=data_normalization_mask,
+                regularization_factor=regularization_factor,
+                subset_percentage=10,
+                batch_size=batch_size,
+            )
+            lambda_regularisation_half1 = 0.9 * previous + 0.1 * current
+
+            previous = lambda_regularisation_half2
+            current = calibrate_regularization_parameter(
+                dataset=dataset_half2,
+                data_preprocessor=data_preprocessor,
+                encoder=encoder_half2,
+                decoder=decoder_half2,
+                particle_shifts=shifts,
+                particle_euler_angles=angles,
+                data_normalization_mask=data_normalization_mask,
+                regularization_factor=regularization_factor,
+                subset_percentage=10,
+                batch_size=batch_size,
+            )
+            lambda_regularisation_half2 = 0.9 * previous + 0.1 * current
 
         # training starts!
         latent_space, losses_half1, displacement_variance_half1 = train_epoch(
@@ -590,7 +482,7 @@ def optimize_deformations(
             data_normalization_mask,
             latent_space,
             latent_weight=beta,
-            regularization_parameter=lam_reg
+            regularization_parameter=lambda_regularisation_half1
         )
 
         latent_space, losses_half2, displacement_variance_half2 = train_epoch(
@@ -608,7 +500,7 @@ def optimize_deformations(
             data_normalization_mask,
             latent_space,
             latent_weight=beta,
-            regularization_parameter=lam_reg
+            regularization_parameter=lambda_regularisation_half2
         )
 
         angles_op.step()
@@ -628,6 +520,8 @@ def optimize_deformations(
         except:
             pass
 
+        # update consensus model
+        # todo: @schwab, integrate this into train_epoch or factor out somehow
         if epoch > (n_warmup_epochs - 1) and consensus_update_rate != 0:
 
             # update half1
@@ -636,8 +530,8 @@ def optimize_deformations(
             with torch.no_grad():
                 for batch_ndx, sample in enumerate(dl):
                     r, y, ctf, shift = sample["rotation"], sample["image"], \
-                        sample["ctf"], - \
-                        sample['translation']
+                                       sample["ctf"], - \
+                                           sample['translation']
                     idx = sample['idx'].to(device)
                     r = angles[idx]
                     shift = shifts[idx]
@@ -657,7 +551,7 @@ def optimize_deformations(
 
                     z = mu + torch.exp(0.5 * logsigma) * torch.randn_like(mu)
                     z_in = z
-                    Proj,  new_points, deformed_points = decoder_half1(
+                    Proj, new_points, deformed_points = decoder_half1(
                         z_in,
                         r,
                         shift.to(
@@ -690,8 +584,8 @@ def optimize_deformations(
             with torch.no_grad():
                 for batch_ndx, sample in enumerate(data_loader_sub):
                     r, y, ctf, shift = sample["rotation"], sample["image"], \
-                        sample["ctf"], - \
-                        sample['translation']
+                                       sample["ctf"], - \
+                                           sample['translation']
                     idx = sample['idx'].to(device)
                     r = angles[idx]
                     shift = shifts[idx]
@@ -726,8 +620,8 @@ def optimize_deformations(
                 with torch.no_grad():
                     for batch_ndx, sample in enumerate(dl):
                         r, y, ctf, shift = sample["rotation"], sample["image"], \
-                            sample["ctf"], - \
-                            sample['translation']
+                                           sample["ctf"], - \
+                                               sample['translation']
                         idx = sample['idx'].to(device)
                         r = angles[idx]
                         shift = shifts[idx]
@@ -781,8 +675,8 @@ def optimize_deformations(
                 with torch.no_grad():
                     for batch_ndx, sample in enumerate(data_loader_sub):
                         r, y, ctf, shift = sample["rotation"], sample["image"], \
-                            sample["ctf"], - \
-                            sample['translation']
+                                           sample["ctf"], - \
+                                               sample['translation']
                         idx = sample['idx'].to(device)
                         r = angles[idx]
                         shift = shifts[idx]
@@ -813,7 +707,8 @@ def optimize_deformations(
                     new_pos_h2 /= consensus_update_pooled_particles
 
             if (
-                    losses_half1['reconstruction_loss'] < old_loss_half1 and losses_half2['reconstruction_loss'] < old_loss_half2) and consensus_update_rate != 0:
+                losses_half1['reconstruction_loss'] < old_loss_half1 and losses_half2[
+                'reconstruction_loss'] < old_loss_half2) and consensus_update_rate != 0:
                 # cons_model.pos = torch.nn.Parameter((1-consensus_update_rate)*cons_model.pos+consensus_update_rate*min_npos,requires_grad=False)
                 decoder_half1.model_positions = torch.nn.Parameter(
                     (
@@ -826,7 +721,8 @@ def optimize_deformations(
                 old_loss_half1 = losses_half1['reconstruction_loss']
                 old_loss_half2 = losses_half2['reconstruction_loss']
                 nosub_ind = 0
-            elif losses_half1['reconstruction_loss'] > old_loss_half1 and losses_half1['reconstruction_loss'] > old_loss_half2:
+            elif losses_half1['reconstruction_loss'] > old_loss_half1 and losses_half1[
+                'reconstruction_loss'] > old_loss_half2:
                 nosub_ind += 1
                 print('No consensus updates for ', nosub_ind, ' epochs')
                 if nosub_ind == 1:
@@ -843,9 +739,9 @@ def optimize_deformations(
 
         with torch.no_grad():
             frc_half1 = losses_half1['fourier_ring_correlation'] / \
-                len(dataset_half1)
+                        len(dataset_half1)
             frc_half2 = losses_half1['fourier_ring_correlation'] / \
-                len(dataset_half2)
+                        len(dataset_half2)
             frc_both = (frc_half1 + frc_half2) / 2
             frc_both = frc_both[:box_size // 2]
             decoder_half1.compute_neighbour_graph()
@@ -863,14 +759,17 @@ def optimize_deformations(
             D_var = torch.stack(
                 [displacement_variance_half1, displacement_variance_half2], 1)
 
-            if initialization_mode in (ConsensusInitializationMode.EMPTY, ConsensusInitializationMode.MAP):
+            if initialization_mode in (
+                ConsensusInitializationMode.EMPTY, ConsensusInitializationMode.MAP):
                 decoder_half1.compute_radius_graph()
                 decoder_half2.compute_radius_graph()
 
             ff2 = generate_form_factor(
-                decoder_half1.image_smoother.A, decoder_half1.image_smoother.B, box_size)
+                decoder_half1.image_smoother.A, decoder_half1.image_smoother.B,
+                box_size)
             ff2b = generate_form_factor(
-                decoder_half2.image_smoother.A, decoder_half2.image_smoother.B, box_size)
+                decoder_half2.image_smoother.A, decoder_half2.image_smoother.B,
+                box_size)
             FF = np.concatenate([ff2, ff2b], 1)
 
             ind1 = torch.randint(0, box_size - 1, (1, 1))
@@ -887,7 +786,9 @@ def optimize_deformations(
             if tot_latent_dim > 2:
                 if epoch % 5 == 0 and epoch > n_warmup_epochs:
                     summ.add_figure("Data/latent",
-                                    visualize_latent(latent_space, c=torch.cat([torch.zeros(len(dataset_half1)), torch.ones(len(dataset_half2))], 0), s=3,
+                                    visualize_latent(latent_space, c=torch.cat(
+                                        [torch.zeros(len(dataset_half1)),
+                                         torch.ones(len(dataset_half2))], 0), s=3,
                                                      alpha=0.2, method='pca'),
                                     epoch)
                     summ.add_figure(
@@ -899,7 +800,9 @@ def optimize_deformations(
                 summ.add_figure("Data/latent",
                                 visualize_latent(
                                     latent_space,
-                                    c=torch.cat([torch.zeros(len(dataset_half1)), torch.ones(len(dataset_half2))], 0), s=3,
+                                    c=torch.cat([torch.zeros(len(dataset_half1)),
+                                                 torch.ones(len(dataset_half2))], 0),
+                                    s=3,
                                     alpha=0.2),
                                 epoch)
                 summ.add_figure("Data/latent2",
@@ -907,13 +810,15 @@ def optimize_deformations(
                                     latent_space, c=cols, s=3, alpha=0.2),
                                 epoch)
             summ.add_scalar("Loss/kld_loss",
-                            (losses_half1['latent_loss'] + losses_half2['latent_loss']) / (
+                            (losses_half1['latent_loss'] + losses_half2[
+                                'latent_loss']) / (
                                 len(data_loader_half1) + len(
-                                    data_loader_half2)), epoch)
+                                data_loader_half2)), epoch)
             summ.add_scalar("Loss/mse_loss",
-                            (losses_half1['reconstruction_loss'] + losses_half2['reconstruction_loss']) / (
+                            (losses_half1['reconstruction_loss'] + losses_half2[
+                                'reconstruction_loss']) / (
                                 len(data_loader_half1) + len(
-                                    data_loader_half2)), epoch)
+                                data_loader_half2)), epoch)
             summ.add_scalars("Loss/mse_loss_halfs",
                              {'half1': (losses_half1['reconstruction_loss']) / (len(
                                  data_loader_half1)),
@@ -921,12 +826,13 @@ def optimize_deformations(
                                   len(data_loader_half2))}, epoch)
             summ.add_scalar("Loss/total_loss", (
                 losses_half1['loss'] + losses_half2['loss']) / (
-                len(data_loader_half1) + len(
-                    data_loader_half2)), epoch)
-            summ.add_scalar("Loss/dist_loss",
-                            (losses_half1['geometric_loss'] + losses_half2['geometric_loss']) / (
                                 len(data_loader_half1) + len(
-                                    data_loader_half2)), epoch)
+                                data_loader_half2)), epoch)
+            summ.add_scalar("Loss/dist_loss",
+                            (losses_half1['geometric_loss'] + losses_half2[
+                                'geometric_loss']) / (
+                                len(data_loader_half1) + len(
+                                data_loader_half2)), epoch)
 
             summ.add_scalar(
                 "Loss/variance1a",
@@ -953,8 +859,9 @@ def optimize_deformations(
                 "Data/input", tensor_imshow(y_in[0].squeeze().detach().cpu()),
                 epoch)
             summ.add_figure("Data/target", tensor_imshow(torch.fft.fftshift(
-                apply_ctf(y[0], data_normalization_mask.float()).squeeze().cpu(), dim=[-1, -2])),
-                epoch)
+                apply_ctf(y[0], data_normalization_mask.float()).squeeze().cpu(),
+                dim=[-1, -2])),
+                            epoch)
             summ.add_figure("Data/cons_points_z_half1",
                             tensor_scatter(decoder_half1.model_positions[:, 0],
                                            decoder_half1.model_positions[:, 1],
@@ -972,7 +879,7 @@ def optimize_deformations(
                             tensor_imshow(torch.fft.fftshift(torch.real(
                                 torch.fft.ifftn(Proj[0], dim=[-1,
                                                               -2])).squeeze().detach().cpu(),
-                                dim=[-1, -2])),
+                                                             dim=[-1, -2])),
                             epoch)
             summ.add_figure("Data/mod_model", tensor_imshow(apply_ctf(
                 y[0], ctf[0].float())), epoch)
@@ -1030,7 +937,7 @@ def optimize_deformations(
                     torch.save(checkpoint, checkpoint_file)
                 else:
                     checkpoint_file = deformations_directory / \
-                        f'{epoch:03}.pth'
+                                      f'{epoch:03}.pth'
                     torch.save(checkpoint, checkpoint_file)
                 xyz_file = deformations_directory / f'{epoch:03}.xyz'
                 write_xyz(
@@ -1040,9 +947,10 @@ def optimize_deformations(
                     ang_pix=ang_pix,
                     class_id=gaussian_widths
                 )
-                graph2bild(decoder_half1.model_positions, decoder_half1.radius_graph, str(
-                    output_directory) + '/graph' + str(
-                    epoch).zfill(3), color=epoch % 65)
+                graph2bild(decoder_half1.model_positions, decoder_half1.radius_graph,
+                           str(
+                               output_directory) + '/graph' + str(
+                               epoch).zfill(3), color=epoch % 65)
 
                 with mrcfile.new(
                     str(output_directory) + '/volume_half1_' + str(

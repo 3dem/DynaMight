@@ -227,24 +227,20 @@ class DisplacementDecoder(torch.nn.Module):
         print('Final error:', loss.item())
 
     def compute_neighbour_graph(self):
-        ang_pos = self.model_positions * self.box_size * \
-            self.ang_pix  # positions in angstrom
-        self.neighbour_graph = my_knn_graph(ang_pos, 2, workers=8)
-        neighbour_distances = torch.pow(
-            torch.sum(
-                (ang_pos[self.neighbour_graph[0]] - ang_pos[self.neighbour_graph[1]]) ** 2, dim=1),
-            0.5)
+        positions_ang = self.model_positions * self.box_size * self.ang_pix
+        knn = my_knn_graph(positions_ang, 2, workers=8)
+        differences = positions_ang[knn[0]] - positions_ang[knn[1]]
+        neighbour_distances = torch.linalg.norm(differences, dim=1)
+        self.neighbour_graph = knn
         self.mean_neighbour_distance = torch.mean(neighbour_distances)
 
     def compute_radius_graph(self):
-        ang_pos = self.model_positions * self.box_size * \
-            self.ang_pix
-        self.radius_graph = my_radius_graph(ang_pos,
-                                            1.5*self.mean_neighbour_distance, workers=8)
-        self.model_distances = torch.pow(
-            torch.sum(
-                (ang_pos[self.radius_graph[0]] - ang_pos[self.radius_graph[1]]) ** 2, dim=1),
-            0.5)
+        positions_ang = self.model_positions * self.box_size * self.ang_pix
+        self.radius_graph = my_radius_graph(
+            positions_ang, r=1.5*self.mean_neighbour_distance, workers=8
+        )
+        differences = positions_ang[self.radius_graph[0]] - positions_ang[self.radius_graph[1]]
+        self.model_distances = torch.linalg.norm(differences)
 
     @property
     def physical_parameters(self) -> torch.nn.ParameterList:
