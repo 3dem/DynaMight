@@ -129,7 +129,7 @@ def geometric_loss(pos, box_size, ang_pix, dist, mode, deformation=None, graph1=
         if distance == True:
             try:
                 dis = torch.pow(
-                    1e-12+torch.sum((pos[:, graph1[0]]-pos[:, graph1[1]])**2, 2), 0.5)
+                    1e-7+torch.sum((pos[:, graph1[0]]-pos[:, graph1[1]])**2, 2), 0.5)
                 distance_loss = torch.mean(gaussian_distance(dis, dist))
             except:
                 print(
@@ -165,7 +165,7 @@ def geometric_loss(pos, box_size, ang_pix, dist, mode, deformation=None, graph1=
 
     #print('distance:', distance_loss, 'neighbour:', neighbour_loss, 'outlier:', outlier_loss)
     if mode == 'density':
-        return 0.01*neighbour_loss + distance_loss + outlier_loss + deformation_loss
+        return 0.01*neighbour_loss + 0.01*distance_loss + outlier_loss + deformation_loss
     elif mode == 'model':
         return deformation_loss
 

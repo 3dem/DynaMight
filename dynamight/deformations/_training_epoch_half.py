@@ -21,11 +21,13 @@ def train_epoch(
     latent_space,
     latent_weight,
     regularization_parameter,
+    consensus_update_pooled_particles,
 ):
     # todo: schwab implement and substitute in optimize deformations
     device = decoder.device
     frc_vals = 0
     displacement_variance = torch.zeros(decoder.n_points)
+    mean_dist = torch.zeros(decoder.n_points)
     running_reconstruction_loss = 0
     running_latent_loss = 0
     running_total_loss = 0
@@ -81,9 +83,6 @@ def train_epoch(
                 except:
                     frc_vals = frc(Proj, y, ctf)
 
-        displacement_variance += torch.sum(
-            torch.linalg.norm(deformed_points.detach().cpu(), dim=2) ** 2, dim=0
-        )
         y = sample["image"].to(device)
         y = data_preprocessor.apply_circular_mask(y.detach())
         rec_loss = fourier_loss(
@@ -121,13 +120,37 @@ def train_epoch(
             decoder_optimizer.step()
             physical_parameter_optimizer.step()
 
-        latent_space[sample["idx"].cpu().numpy()] = mu.detach().cpu()
-        running_reconstruction_loss += rec_loss.item()
-        running_latent_loss += latent_loss.item()
-        running_total_loss += loss.item()
-        running_geometric_loss += geo_loss.item()
+        with torch.no_grad():
+            displacement_variance += torch.sum(
+                torch.linalg.norm(deformed_points.detach().cpu(), dim=2) ** 2, dim=0
+            )
+            mean_dist += torch.sum(
+                torch.linalg.norm(deformed_points.detach().cpu(), dim=2), dim=0
+            )
+            defs = torch.linalg.norm(
+                torch.linalg.norm(deformed_points.detach().cpu(), dim=2), dim=1)
+            if batch_ndx == 0 or dis_norm.shape[0] < consensus_update_pooled_particles:
+                dis_norm = defs
+                idix = idx.cpu()
+            else:
+                dis_norm = torch.cat([dis_norm, defs])
+                _, bottom_ind = torch.topk(
+                    dis_norm, consensus_update_pooled_particles, largest=False)
+                dis_norm = dis_norm[bottom_ind]
+                idix = torch.cat([idix, idx.cpu()])
+                idix = idix[bottom_ind]
+            latent_space[sample["idx"].cpu().numpy()] = mu.detach().cpu()
+            running_reconstruction_loss += rec_loss.item()
+            running_latent_loss += latent_loss.item()
+            running_total_loss += loss.item()
+            running_geometric_loss += geo_loss.item()
 
         losses = {'loss': running_total_loss, 'reconstruction_loss': running_reconstruction_loss,
                   'latent_loss': running_latent_loss, 'geometric_loss': running_geometric_loss, 'fourier_ring_correlation': frc_vals}
+        visualization_data = {'projection_image': Proj, 'input_image': y_in, 'target_image': y,
+                              'ctf': ctf, 'deformed_points': new_points, 'displacements': deformed_points}
+        displacement_statistics = {'mean_displacements': mean_dist,
+                                   'displacement_variances': displacement_variance}
+    print(dis_norm)
 
-    return latent_space, losses, displacement_variance
+    return latent_space, losses, displacement_statistics, idix, visualization_data
