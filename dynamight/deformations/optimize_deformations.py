@@ -11,7 +11,6 @@ import sys
 import time
 from pathlib import Path
 from typing import Optional
-from enum import Enum, auto
 
 import numpy as np
 import torch
@@ -26,35 +25,26 @@ from ..data.handlers.particle_image_preprocessor import \
     ParticleImagePreprocessor
 from ..data.dataloaders.relion import RelionDataset
 from ..data.handlers.io_logger import IOLogger
-from ..models.consensus import ConsensusModel
+from ..models.constants import ConsensusInitializationMode
 from ..models.decoder import DisplacementDecoder
 from ..models.encoder import HetEncoder
 from ..models.blocks import LinearBlock
 from ..models.pose import PoseModule
 from ..models.utils import initialize_points_from_volume
-from ..utils.utils_new import compute_threshold, initialize_consensus, \
-    initialize_dataset, load_models, add_weight_decay_to_named_parameters, \
-    fourier_loss, power_spec2, radial_avg2, geometric_loss, frc, \
+from ..utils.utils_new import compute_threshold, load_models, add_weight_decay_to_named_parameters, \
     reset_all_linear_layer_weights, graph2bild, generate_form_factor, \
-    prof2radim, visualize_latent, tensor_plot, tensor_imshow, tensor_scatter, \
-    tensor_hist, apply_ctf, write_xyz, my_knn_graph, my_radius_graph, \
-    calculate_grid_oversampling_factor, generate_data_normalization_mask, FSC
-from ._training_epoch_half import train_epoch
+    visualize_latent, tensor_plot, tensor_imshow, tensor_scatter, \
+    apply_ctf, write_xyz, calculate_grid_oversampling_factor, generate_data_normalization_mask, FSC
+from ._train_single_epoch_half import train_epoch
 from ._update_model import update_model_positions
 # from coarse_grain import optimize_coarsegraining
 
 # TODO: add coarse graining to GitHub
 
 
-from typer import Option, Typer
+from typer import Option
 
 from .._cli import cli
-
-
-class ConsensusInitializationMode(Enum):
-    EMPTY = auto()
-    MAP = auto()
-    MODEL = auto()
 
 
 @cli.command(no_args_is_help=True)
@@ -450,6 +440,7 @@ def optimize_deformations(
                 regularization_factor=regularization_factor,
                 subset_percentage=10,
                 batch_size=batch_size,
+                mode=initialization_mode,
             )
             lambda_regularization_half1 = 0.9 * previous + 0.1 * current
 
@@ -465,6 +456,7 @@ def optimize_deformations(
                 regularization_factor=regularization_factor,
                 subset_percentage=10,
                 batch_size=batch_size,
+                mode=initialization_mode,
             )
             lambda_regularization_half2 = 0.9 * previous + 0.1 * current
 
@@ -490,7 +482,8 @@ def optimize_deformations(
             latent_space,
             latent_weight=beta,
             regularization_parameter=lambda_regularization_half1,
-            consensus_update_pooled_particles=consensus_update_pooled_particles
+            consensus_update_pooled_particles=consensus_update_pooled_particles,
+            mode=initialization_mode,
         )
 
         print(idix_half1)
@@ -511,7 +504,8 @@ def optimize_deformations(
             latent_space,
             latent_weight=beta,
             regularization_parameter=lambda_regularization_half2,
-            consensus_update_pooled_particles=consensus_update_pooled_particles
+            consensus_update_pooled_particles=consensus_update_pooled_particles,
+            mode=initialization_mode,
         )
 
         print(idix_half2)

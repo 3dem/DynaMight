@@ -1,7 +1,10 @@
 import torch
 import numpy as np
-from ..utils.utils_new import frc, fourier_loss, geometric_loss
-import time
+
+from ..models.constants import ConsensusInitializationMode
+from ..models.losses import GeometricLoss
+from ..utils.utils_new import frc, fourier_loss
+
 from tqdm import tqdm
 
 
@@ -22,6 +25,7 @@ def train_epoch(
     latent_weight,
     regularization_parameter,
     consensus_update_pooled_particles,
+    mode: ConsensusInitializationMode,
 ):
     # todo: schwab implement and substitute in optimize deformations
     device = decoder.device
@@ -32,6 +36,14 @@ def train_epoch(
     running_latent_loss = 0
     running_total_loss = 0
     running_geometric_loss = 0
+
+    geometric_loss = GeometricLoss(
+        mode=mode,
+        neighbour_loss_weight=0.01,
+        repulsion_weight=0.01,
+        outlier_weight=1,
+        deformation_regularity_weight=1,
+    )
 
     for batch_ndx, sample in tqdm(enumerate(dataloader)):
         if batch_ndx % dataloader.batch_size == 0:
@@ -65,7 +77,7 @@ def train_epoch(
         z_in = z
 
         if epoch < n_warmup_epochs:  # Set latent code for consensus reconstruction to zero
-            Proj,  new_points, deformed_points = decoder(
+            Proj, new_points, deformed_points = decoder(
                 z_in,
                 r,
                 shift.to(
@@ -86,11 +98,12 @@ def train_epoch(
         y = sample["image"].to(device)
         y = data_preprocessor.apply_circular_mask(y.detach())
         rec_loss = fourier_loss(
-            Proj.squeeze(), y.squeeze(), ctf.float(), W=data_normalization_mask[None, :, :])
+            Proj.squeeze(), y.squeeze(), ctf.float(),
+            W=data_normalization_mask[None, :, :])
         latent_loss = -0.5 * \
-            torch.mean(torch.sum(1 + logsigma - mu ** 2 -
-                                 torch.exp(logsigma), dim=1),
-                       dim=0)
+                      torch.mean(torch.sum(1 + logsigma - mu ** 2 -
+                                           torch.exp(logsigma), dim=1),
+                                 dim=0)
 
         if epoch < n_warmup_epochs:  # and cons_model.n_points<args.n_gauss:
             geo_loss = torch.zeros(1).to(device)
@@ -98,15 +111,20 @@ def train_epoch(
         else:
             encoder.requires_grad = True
             geo_loss = geometric_loss(
-                new_points, decoder.box_size, decoder.ang_pix, decoder.mean_neighbour_distance,
-                deformation=decoder.model_distances,
-                graph1=decoder.radius_graph, graph2=decoder.neighbour_graph, mode=decoder.loss_mode)
+                deformed_positions=new_points,
+                mean_neighbour_distance=decoder.mean_neighbour_distance,
+                consensus_pairwise_distances=decoder.model_distances,
+                knn=decoder.neighbour_graph,
+                radius_graph=decoder.radius_graph,
+                box_size=decoder.box_size,
+                ang_pix=decoder.ang_pix
+            )
 
         if epoch < n_warmup_epochs:
             loss = rec_loss + latent_weight * latent_loss
         else:
             loss = rec_loss + latent_weight * latent_loss + \
-                regularization_parameter * geo_loss
+                   regularization_parameter * geo_loss
 
         loss.backward()
         if epoch < n_warmup_epochs:
@@ -145,10 +163,15 @@ def train_epoch(
             running_total_loss += loss.item()
             running_geometric_loss += geo_loss.item()
 
-        losses = {'loss': running_total_loss, 'reconstruction_loss': running_reconstruction_loss,
-                  'latent_loss': running_latent_loss, 'geometric_loss': running_geometric_loss, 'fourier_ring_correlation': frc_vals}
-        visualization_data = {'projection_image': Proj, 'input_image': y_in, 'target_image': y,
-                              'ctf': ctf, 'deformed_points': new_points, 'displacements': deformed_points}
+        losses = {'loss': running_total_loss,
+                  'reconstruction_loss': running_reconstruction_loss,
+                  'latent_loss': running_latent_loss,
+                  'geometric_loss': running_geometric_loss,
+                  'fourier_ring_correlation': frc_vals}
+        visualization_data = {'projection_image': Proj, 'input_image': y_in,
+                              'target_image': y,
+                              'ctf': ctf, 'deformed_points': new_points,
+                              'displacements': deformed_points}
         displacement_statistics = {'mean_displacements': mean_dist,
                                    'displacement_variances': displacement_variance}
     print(dis_norm)

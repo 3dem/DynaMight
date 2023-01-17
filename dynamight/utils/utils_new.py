@@ -15,8 +15,8 @@ import torch
 import torch.nn as nn
 import torch.fft
 import torch.nn.functional as F
-#from torch_geometric.nn import radius_graph, knn_graph
-#from torch_scatter import scatter
+# from torch_geometric.nn import radius_graph, knn_graph
+# from torch_scatter import scatter
 import umap
 from sklearn.decomposition import PCA
 from tsnecuda import TSNE
@@ -58,156 +58,8 @@ def fourier_loss(x, y, ctf, W=None, sig=None):
         y = torch.multiply(y, W)
     # else:
     #     x = torch.multiply(x,ctf)
-    l = torch.mean(torch.pow(torch.mean(torch.abs(x-y)**2, dim=[-1, -2]), 0.5))
+    l = torch.mean(torch.pow(torch.mean(torch.abs(x - y) ** 2, dim=[-1, -2]), 0.5))
     return l
-
-
-def geometric_loss(pos, box_size, ang_pix, dist, mode, deformation=None, graph1=None, graph2=None, neighbour=False, distance=False, outlier=False, graph=False):
-    pos = pos*box_size*ang_pix
-    if mode == 'model':
-        graph = True
-    if mode == 'density':
-        graph = True
-        neighbour = True
-        distance = True
-        outlier = True
-
-    if len(pos.shape) == 2:
-        if neighbour == True:
-            #gr = radius_graph(pos, dist+0.5, num_workers=8)
-            gr = my_radius_graph(pos, dist+0.5, workers=8)
-            dis = torch.pow(1e-7+torch.sum((pos[gr[0]]-pos[gr[1]])**2, 1), 0.5)
-            dis2 = distance_activation(dis, dist)
-            #d = scatter(dis2, gr[0], reduce='sum')
-            d = scatter_sub(dis2, gr[0])
-            val = neighbour_activation(d)
-            neighbour_loss = torch.mean(val)
-        else:
-            neighbour_loss = torch.zeros(1).to(pos.device)
-        if distance == True:
-            try:
-                distance_loss = torch.mean(gaussian_distance(dis, dist))
-            except:
-                #gr = radius_graph(pos, distance+0.5, num_workers=8)
-                gr = my_radius_graph(pos, distance+0.5*distance, workers=8)
-                dis = torch.pow(
-                    1e-7+torch.sum((pos[gr[0]]-pos[gr[1]])**2, 1), 0.5)
-                distance_loss = torch.mean(gaussian_distance(dis, dist))
-        else:
-            distance_loss = torch.zeros(1).to(pos.device)
-        if outlier == True:
-            #gr2 = knn_graph(pos, 1, num_workers=8)
-            gr2 = my_knn_graph(pos, 1, workers=8)
-            out_dis = torch.pow(
-                1e-7+torch.sum((pos[gr2[0]]-pos[gr2[1]])**2, 1), 0.5)
-            out_dis = torch.clamp(out_dis, min=dist+0.2)
-            outlier_loss = torch.mean(out_dis-(dist+0.2))
-        else:
-            outlier_loss = torch.zeros(1).to(pos.device)
-        deformation_loss = torch.zeros(1).to(pos.device)
-
-    elif len(pos.shape) == 3:
-
-        if neighbour == True:
-            try:
-                graph1
-            except:
-                print(
-                    'Radius graph has to be provided for batch application of neighbour and distance loss')
-
-            dis = torch.pow(
-                1e-7+torch.sum((pos[:, graph1[0]]-pos[:, graph1[1]])**2, 2), 0.5)
-            dis2 = distance_activation(dis, dist)
-            #d = scatter(dis2, graph1[0], reduce='sum')
-            d = scatter_sub(dis2, graph1[0])
-            val = neighbour_activation(d)
-            #neighbour_loss = torch.mean(torch.sum(val,1)/pos.shape[1])
-            neighbour_loss = torch.mean(torch.mean(val, 1))
-            #neighbour_loss = torch.mean(torch.sum(val,1))
-        else:
-            neighbour_loss = torch.zeros(1).to(pos.device)
-        if distance == True:
-            try:
-                dis = torch.pow(
-                    1e-7+torch.sum((pos[:, graph1[0]]-pos[:, graph1[1]])**2, 2), 0.5)
-                distance_loss = torch.mean(
-                    gaussian_distance(dis, dist, ang_pix, box_size))
-            except:
-                print(
-                    'Radius graph has to be provided for batch application of neighbour and distance loss')
-                distance_loss = torch.zeros(1).to(pos.device)
-        else:
-            distance_loss = torch.zeros(1).to(pos.device)
-        if outlier == True:
-            try:
-                out_dis = torch.pow(
-                    1e-7+torch.sum((pos[:, graph2[0]]-pos[:, graph2[1]])**2, 2), 0.5)
-                out_dis = torch.clamp(out_dis, min=2*dist)
-                outlier_loss = torch.mean(out_dis-(2*dist))
-            except:
-                print(
-                    'KNN graph has to be provided for batch application of outlier loss')
-        else:
-            outlier_loss = torch.zeros(1).to(pos.device)
-        if graph == True:
-            try:
-                dis
-            except:
-                dis = torch.pow(
-                    1e-7+torch.sum((pos[:, graph1[0]]-pos[:, graph1[1]])**2, 2), 0.5)
-
-            try:
-                diff_dis = torch.abs(dis-deformation)**2
-                deformation_loss = torch.mean(diff_dis)
-            except:
-                print('no distances provided')
-        else:
-            deformation_loss = torch.zeros(1).to(pos.device)
-
-    #print('distance:', distance_loss, 'neighbour:', neighbour_loss, 'outlier:', outlier_loss)
-    if mode == 'density':
-        print(neighbour_loss)
-        print(distance_loss)
-        print(outlier_loss)
-        print(deformation_loss)
-        return 0.01*neighbour_loss + distance_loss + outlier_loss + deformation_loss
-    elif mode == 'model':
-        return deformation_loss
-
-
-def gaussian_distance(d, distance, ang_pix, box_size):
-    if distance < 0.5:
-        cutoff_distance = 0.5
-    else:
-        cutoff_distance = distance/3
-    x1 = torch.clamp(d, max=cutoff_distance)
-    x1 = (x1-cutoff_distance)**2
-    #x2 = torch.clamp(d,min = 1.6)
-    #x2 = 1-(1-(4.2-2*x2)**2)**2
-    return x1
-
-
-def neighbour_activation(v):
-    x1 = torch.clamp(v, max=1)
-    x2 = torch.clamp(v, min=3)
-    x1 = (x1-1)**2
-    #x2 = (1-(4-x2)**2)**2
-    x2 = (x2-3)**2
-    return x1+x2
-
-
-def distance_activation(d, distance):
-    cutoff_distance = distance
-    # x = torch.zeros_like(d)
-    # x1 = torch.clamp(d,max = distance)
-    x2 = torch.clamp(d, min=cutoff_distance,
-                     max=cutoff_distance+0.5*cutoff_distance)
-    #x1 = distance-x1
-    #x1 = torch.nn.ReLU(x1)+1
-    #x2[x2==distance] = distance + 0.5
-    # x[d<distance]=1
-    x2 = (1-(4/distance**2)*(x2-distance)**2)**2
-    return x2
 
 
 '-----------------------------------------------------------------------------'
@@ -217,7 +69,8 @@ def distance_activation(d, distance):
 
 class PointProjector(nn.Module):
     """Projects multi-class points from 3D to 2D."""
-   # for angle ordering [TILT,ROT,PSI]
+
+    # for angle ordering [TILT,ROT,PSI]
 
     def __init__(self, box_size):
         super(PointProjector, self).__init__()
@@ -225,14 +78,14 @@ class PointProjector(nn.Module):
 
     def forward(self, p, rr):
         device = p.device
-        #batch_size = rr.shape[0]
-        #yaw = rr[:,1:2]+np.pi
-        #pitch = -rr[:,0:1]
-        #roll = rr[:,2:3]+np.pi
+        # batch_size = rr.shape[0]
+        # yaw = rr[:,1:2]+np.pi
+        # pitch = -rr[:,0:1]
+        # roll = rr[:,2:3]+np.pi
         if len(rr.shape) < 3:
-            roll = rr[:, 0:1]+np.pi
+            roll = rr[:, 0:1] + np.pi
             yaw = -rr[:, 2:3]
-            pitch = rr[:, 1:2]+np.pi
+            pitch = rr[:, 1:2] + np.pi
 
             tensor_0 = torch.zeros_like(roll).to(device)
             tensor_1 = torch.ones_like(roll).to(device)
@@ -293,34 +146,34 @@ class PointsToImages(nn.Module):
 
     def forward(self, points, values):
         self.batch_size = points.shape[0]
-        p = ((points+0.5)*(self.box_size*self.os)).movedim(1, 2)
+        p = ((points + 0.5) * (self.box_size * self.os)).movedim(1, 2)
         device = p.device
         im = torch.zeros(self.batch_size, self.n_classes,
-                         (self.box_size*self.os)**2).to(device)
+                         (self.box_size * self.os) ** 2).to(device)
         xypoints = p.floor().long()
-        rxy = p-xypoints
+        rxy = p - xypoints
         x, y = xypoints.split(1, dim=-1)
         rx, ry = rxy.split(1, dim=-1)
 
         for dx in (0, 1):
-            x_ = x+dx
-            wx = (1-dx)+(2*dx-1)*rx
+            x_ = x + dx
+            wx = (1 - dx) + (2 * dx - 1) * rx
             for dy in (0, 1):
-                y_ = y+dy
-                wy = (1-dy)+(2*dy-1)*ry
+                y_ = y + dy
+                wy = (1 - dy) + (2 * dy - 1) * ry
 
-                w = wx*wy
+                w = wx * wy
 
-                valid = ((0 <= x_)*(x_ < self.os*self.box_size) *
-                         (0 <= y_)*(y_ < self.os*self.box_size)).long()
+                valid = ((0 <= x_) * (x_ < self.os * self.box_size) *
+                         (0 <= y_) * (y_ < self.os * self.box_size)).long()
 
-                idx = ((y_*self.box_size*self.os + x_)*valid).squeeze()
-                idx = torch.stack(self.n_classes*[idx], 1)
-                w = (w*valid.type_as(w)).squeeze()
-                w = torch.stack(self.n_classes*[w], 1)
-                im.scatter_add_(2, idx, w*values)
+                idx = ((y_ * self.box_size * self.os + x_) * valid).squeeze()
+                idx = torch.stack(self.n_classes * [idx], 1)
+                w = (w * valid.type_as(w)).squeeze()
+                w = torch.stack(self.n_classes * [w], 1)
+                im.scatter_add_(2, idx, w * values)
         im = im.reshape(self.batch_size, self.n_classes,
-                        self.os*self.box_size, self.os*self.box_size)
+                        self.os * self.box_size, self.os * self.box_size)
 
         return im
 
@@ -337,14 +190,14 @@ def initialize_consensus(model, ref, logdir, lr=0.001, n_epochs=300, mask=None):
     for i in tqdm(range(n_epochs)):
         model_optimizer.zero_grad()
         V = model.generate_volume(r0.to(device), t0.to(device)).float()
-        #fsc,res=FSC(ref,V[0],1,visualize = False)
+        # fsc,res=FSC(ref,V[0],1,visualize = False)
         loss = torch.nn.functional.mse_loss(
             V[0], ref)  # +1e-7*f1(lay(model.pos))
         loss.backward()
         model_optimizer.step()
     print('Final error:', loss.item())
     with mrcfile.new(logdir + '/ini_volume.mrc', overwrite=True) as mrc:
-        mrc.set_data((V[0]/torch.mean(V[0])).float().detach().cpu().numpy())
+        mrc.set_data((V[0] / torch.mean(V[0])).float().detach().cpu().numpy())
 
 
 class FourierImageSmoother(nn.Module):
@@ -360,10 +213,11 @@ class FourierImageSmoother(nn.Module):
         self.box_size = box_size
         self.device = device
         self.n_classes = n_classes
-        self.rad_inds, self.rad_mask = radial_index_mask(oversampling*box_size)
+        self.rad_inds, self.rad_mask = radial_index_mask(oversampling * box_size)
         if A == None and B == None:
             self.B = torch.nn.Parameter(torch.linspace(
-                0.0005*box_size, 0.001*box_size, n_classes).to(device), requires_grad=True)
+                0.0005 * box_size, 0.001 * box_size, n_classes).to(device),
+                                        requires_grad=True)
             self.A = torch.nn.Parameter(torch.linspace(
                 0.1, 0.2, n_classes).to(device), requires_grad=True)
         else:
@@ -373,17 +227,17 @@ class FourierImageSmoother(nn.Module):
         self.crop = fourier_crop
 
     def forward(self, ims):
-        R = torch.stack(self.n_classes*[self.rad_inds.to(self.device)], 0)
-        FF = torch.exp(-self.B[:, None, None]**2*R)*self.A[:, None, None]**2
+        R = torch.stack(self.n_classes * [self.rad_inds.to(self.device)], 0)
+        FF = torch.exp(-self.B[:, None, None] ** 2 * R) * self.A[:, None, None] ** 2
         bs = ims.shape[0]
-        Filts = torch.stack(bs*[FF], 0)
+        Filts = torch.stack(bs * [FF], 0)
         Filts = torch.fft.ifftshift(Filts, dim=[-2, -1])
         Fims = torch.fft.fft2(torch.fft.fftshift(
             ims, dim=[-2, -1]), norm='ortho')
         if self.n_classes > 1:
-            out = torch.sum(Filts*Fims, dim=1)
+            out = torch.sum(Filts * Fims, dim=1)
         else:
-            out = Filts*Fims
+            out = Filts * Fims
         if self.os > 1:
             out = self.crop(out, self.os)
         return out
@@ -392,21 +246,22 @@ class FourierImageSmoother(nn.Module):
 def fourier_crop(img, oversampling):
     s = img.shape[-1]
     img = torch.fft.fftshift(img, [-1, -2])
-    out = img[..., s//2-s//(2*oversampling):s//2+s//(2*oversampling),
-              s//2-s//(2*oversampling):s//2+s//(2*oversampling)]
+    out = img[..., s // 2 - s // (2 * oversampling):s // 2 + s // (2 * oversampling),
+          s // 2 - s // (2 * oversampling):s // 2 + s // (2 * oversampling)]
     out = torch.fft.fftshift(out, [-1, -2])
     return out
 
 
 def radial_index_mask(box_size, ang_pix=None):
     if ang_pix:
-        x = torch.tensor(box_size*ang_pix*np.linspace(-box_size/2,
-                         box_size/2, box_size, endpoint=False)/4*np.pi)
+        x = torch.tensor(box_size * ang_pix * np.linspace(-box_size / 2,
+                                                          box_size / 2, box_size,
+                                                          endpoint=False) / 4 * np.pi)
     else:
         x = torch.tensor(
             np.linspace(-box_size, box_size, box_size, endpoint=False))
     X, Y = torch.meshgrid(x, x)
-    R = torch.round(torch.sqrt(X**2+Y**2))
+    R = torch.round(torch.sqrt(X ** 2 + Y ** 2))
     Mask = R < (x[-1])
 
     return R.long(), Mask
@@ -414,13 +269,14 @@ def radial_index_mask(box_size, ang_pix=None):
 
 def radial_index_mask3(box_size, ang_pix=None):
     if ang_pix:
-        x = torch.tensor(box_size*ang_pix*np.linspace(-box_size/2,
-                         box_size/2, box_size, endpoint=False)/4*np.pi)
+        x = torch.tensor(box_size * ang_pix * np.linspace(-box_size / 2,
+                                                          box_size / 2, box_size,
+                                                          endpoint=False) / 4 * np.pi)
     else:
         x = torch.tensor(
             np.linspace(-box_size, box_size, box_size, endpoint=False))
     X, Y, Z = torch.meshgrid(x, x, x)
-    R = torch.round(torch.sqrt(X**2+Y**2+Z**2))
+    R = torch.round(torch.sqrt(X ** 2 + Y ** 2 + Z ** 2))
     Mask = R < (x[-1])
 
     return R, Mask
@@ -430,8 +286,8 @@ def generate_form_factor(a, b, box_size):
     r = np.linspace(0, box_size, box_size, endpoint=False)
     a = a.detach().cpu().numpy()
     b = b.detach().cpu().numpy()
-    R = np.stack(a.shape[0]*[r], 0)
-    F = np.exp(-b[:, None]**2*R)*a[:, None]**2
+    R = np.stack(a.shape[0] * [r], 0)
+    F = np.exp(-b[:, None] ** 2 * R) * a[:, None] ** 2
     return np.moveaxis(F, 0, 1)
 
 
@@ -439,7 +295,7 @@ def find_initialization_parameters(model, V):
     r0 = torch.zeros(2, 3).to(model.device)
     t0 = torch.zeros(2, 2).to(model.device)
     Vmodel = model.generate_volume(r0, t0)
-    ratio = torch.sum(V**2)/torch.sum(Vmodel**2)
+    ratio = torch.sum(V ** 2) / torch.sum(Vmodel ** 2)
     # s = torch.linspace(0,0.5,100)
     # a = torch.linspace(0,2*ratio,100)
     # rad_inds, rad_mask = radial_index_mask3(oversampling*box_size)
@@ -448,7 +304,7 @@ def find_initialization_parameters(model, V):
     #     for j in range(100):
     #         FF = torch.exp(-s[i,None,None]**2*R)*a[j,None,None]**2
     model.amp = torch.nn.Parameter(
-        0.55*torch.ones(1).to(model.device), requires_grad=True)
+        0.55 * torch.ones(1).to(model.device), requires_grad=True)
 
 
 def initialize_dataset(
@@ -486,42 +342,44 @@ class PointsToVolumes(nn.Module):
         device = positions.device
         p = ((positions + 0.5) * (self.box_size))
         vol = torch.zeros(self.batch_size, self.n_classes,
-                          self.box_size**3).to(device)
+                          self.box_size ** 3).to(device)
 
         xyzpoints = p.floor().long()
 
-        rxyz = p-xyzpoints
+        rxyz = p - xyzpoints
 
         x, y, z = xyzpoints.split(1, dim=-1)
         rx, ry, rz = rxyz.split(1, dim=-1)
 
         for dx in (0, 1):
-            x_ = x+dx
-            wx = (1-dx)+(2*dx-1)*rx
+            x_ = x + dx
+            wx = (1 - dx) + (2 * dx - 1) * rx
             for dy in (0, 1):
-                y_ = y+dy
-                wy = (1-dy)+(2*dy-1)*ry
+                y_ = y + dy
+                wy = (1 - dy) + (2 * dy - 1) * ry
                 for dz in (0, 1):
-                    z_ = z+dz
-                    wz = (1-dz)+(2*dz-1)*rz
+                    z_ = z + dz
+                    wz = (1 - dz) + (2 * dz - 1) * rz
 
-                    w = wx*wy*wz
+                    w = wx * wy * wz
                     if self.batch_size > 1:
-                        valid = ((0 <= x_)*(x_ < self.box_size)*(0 <= y_)*(y_ <
-                                 self.box_size)*(0 <= z_)*(z_ < self.box_size)).long()
-                        idx = (((z_*self.box_size + y_) *
-                               self.box_size + x_)*valid).squeeze()
-                        idx = torch.stack(self.n_classes*[idx], 1)
-                        w = (w*valid.type_as(w)).squeeze()
-                        w = torch.stack(self.n_classes*[w], 1)
+                        valid = ((0 <= x_) * (x_ < self.box_size) * (0 <= y_) * (y_ <
+                                                                                 self.box_size) * (
+                                         0 <= z_) * (z_ < self.box_size)).long()
+                        idx = (((z_ * self.box_size + y_) *
+                                self.box_size + x_) * valid).squeeze()
+                        idx = torch.stack(self.n_classes * [idx], 1)
+                        w = (w * valid.type_as(w)).squeeze()
+                        w = torch.stack(self.n_classes * [w], 1)
                     else:
-                        valid = ((0 <= x_)*(x_ < self.box_size)*(0 <= y_)*(y_ <
-                                 self.box_size)*(0 <= z_)*(z_ < self.box_size)).long()
-                        idx = (((z_*self.box_size + y_) *
-                               self.box_size + x_)*valid).squeeze(2)
-                        idx = torch.stack(self.n_classes*[idx], 1)
-                        w = (w*valid.type_as(w)).squeeze(2)
-                        w = torch.stack(self.n_classes*[w], 1)
+                        valid = ((0 <= x_) * (x_ < self.box_size) * (0 <= y_) * (y_ <
+                                                                                 self.box_size) * (
+                                         0 <= z_) * (z_ < self.box_size)).long()
+                        idx = (((z_ * self.box_size + y_) *
+                                self.box_size + x_) * valid).squeeze(2)
+                        idx = torch.stack(self.n_classes * [idx], 1)
+                        w = (w * valid.type_as(w)).squeeze(2)
+                        w = torch.stack(self.n_classes * [w], 1)
 
                     vol.scatter_add_(2, idx, w * amplitudes)
 
@@ -538,29 +396,31 @@ def frc(x, y, ctf, batch_reduce='sum'):
     device = x.device
     batch_size = x.shape[0]
     eps = 1e-8
-    ind = torch.linspace(-(N-1)/2, (N-1)/2-1, N)
-    #end_ind = torch.round(torch.tensor(N/2)).long()
+    ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
+    # end_ind = torch.round(torch.tensor(N/2)).long()
     X, Y = torch.meshgrid(ind, ind)
-    R = torch.cat(batch_size*[torch.fft.fftshift(torch.round(
-        torch.pow(X**2+Y**2, 0.5)).long()).unsqueeze(0)], 0).to(device)
+    R = torch.cat(batch_size * [torch.fft.fftshift(torch.round(
+        torch.pow(X ** 2 + Y ** 2, 0.5)).long()).unsqueeze(0)], 0).to(device)
     # num = scatter(torch.real(x*torch.conj(y)).flatten(start_dim=-2),
     #              R.flatten(start_dim=-2), reduce='mean')
-    num = scatter_mean_sub(torch.real(x*torch.conj(y)).flatten(start_dim=-2),
-                           R.flatten(start_dim=-2))
+    num = scatter_mean(torch.real(x * torch.conj(y)).flatten(start_dim=-2),
+                       R.flatten(start_dim=-2))
     # den = torch.pow(scatter(torch.abs(x.flatten(start_dim=-2))**2, R.flatten(start_dim=-2), reduce='mean')
     #                * scatter(torch.abs(y.flatten(start_dim=-2))**2, R.flatten(start_dim=-2), reduce='mean'), 0.5)
-    den = torch.pow(scatter_mean_sub(torch.abs(x.flatten(start_dim=-2))**2, R.flatten(start_dim=-2))
-                    * scatter_mean_sub(torch.abs(y.flatten(start_dim=-2))**2, R.flatten(start_dim=-2)), 0.5)
-    FRC = num/(den+eps)
-    FRC = torch.sum(num/den, 0)
+    den = torch.pow(
+        scatter_mean(torch.abs(x.flatten(start_dim=-2)) ** 2, R.flatten(start_dim=-2))
+        * scatter_mean(torch.abs(y.flatten(start_dim=-2)) ** 2,
+                       R.flatten(start_dim=-2)), 0.5)
+    FRC = num / (den + eps)
+    FRC = torch.sum(num / den, 0)
 
     return FRC
 
 
 def maskpoints(points, ampvar, mask, box_size):
     bs = points.shape[0]
-    indpoints = torch.round((points+0.5)*(box_size-1)).long()
-    indpoints = torch.clip(indpoints, max=mask.shape[-1]-1, min=0)
+    indpoints = torch.round((points + 0.5) * (box_size - 1)).long()
+    indpoints = torch.clip(indpoints, max=mask.shape[-1] - 1, min=0)
     if len(indpoints.shape) > 2:
         point_inds = mask[indpoints[:, :, 0],
                           indpoints[:, :, 1], indpoints[:, :, 2]] > 0
@@ -612,7 +472,6 @@ def tensor_plot(tensor):
 
 
 def tensor_scatter(x, y, c, s=0.1, alpha=0.5, cmap='jet'):
-
     x = x.detach().cpu()
     y = y.detach().cpu()
     backend = matplotlib.rcParams['backend']
@@ -669,7 +528,7 @@ def visualize_latent(z, c, s=0.1, alpha=0.5, cmap='jet', method='umap'):
         embed = z[1:]
 
     fig, ax = plt.subplots(figsize=(5, 5))
-    s = 40000/z.shape[0]
+    s = 40000 / z.shape[0]
     ax.scatter(embed[:, 0], embed[:, 1], alpha=alpha, s=s, c=c)
     plt.axis("off")
     plt.subplots_adjust(hspace=0, wspace=0)
@@ -692,8 +551,8 @@ def write_xyz(
     class_id: torch.Tensor  # argmax of gaussian width
 ):
     # turn class IDs into atom specifiers for coloring
-    points = box_size*ang_pix*(0.5+points.detach().data.cpu().numpy())
-    atom_spec = np.array(['C', 'O', 'N', 'H', 'S']+['C']*200)
+    points = box_size * ang_pix * (0.5 + points.detach().data.cpu().numpy())
+    atom_spec = np.array(['C', 'O', 'N', 'H', 'S'] + ['C'] * 200)
     atom_idx = class_id.detach().cpu().numpy().astype(int)
     atoms = atom_spec[atom_idx]
 
@@ -705,14 +564,13 @@ def write_xyz(
 
 
 def graph2bild(points, edge_index, title, color=5):
-
     points = points.detach().cpu().numpy()
-    f = open(title+'.bild', 'a')
+    f = open(title + '.bild', 'a')
     for k in range(points.shape[0]):
         f.write("%s %.18g %.18g %.18g %.18g\n" %
                 ('.sphere', points[k, 0], points[k, 1], points[k, 2], 0.01))
     y = np.concatenate([points[edge_index[0].cpu().numpy()],
-                       points[edge_index[1].cpu().numpy()]], 1)
+                        points[edge_index[1].cpu().numpy()]], 1)
     f.write('%s %.18g\n' % ('.color', color))
     for k in range(y.shape[0]):
         f.write("%s %.18g %.18g %.18g %.18g %.18g %.18g %.18g\n" % (
@@ -721,15 +579,15 @@ def graph2bild(points, edge_index, title, color=5):
 
 
 def graphs2bild(total_points, points, edge_indices, amps, title, box_size, ang_pix):
-    f = open(title+'.bild', 'a')
+    f = open(title + '.bild', 'a')
     color = 8
     total_points = total_points.detach().cpu().numpy()
-    total_points = (total_points+0.5)*box_size*ang_pix
+    total_points = (total_points + 0.5) * box_size * ang_pix
     tk = 0
     for points, amps, edge_index in zip(points, amps, edge_indices):
         points = points.detach().cpu().numpy()
-        points = (points+0.5)*box_size*ang_pix
-        points = points/(box_size*ang_pix)-0.5
+        points = (points + 0.5) * box_size * ang_pix
+        points = points / (box_size * ang_pix) - 0.5
         f.write('%s %.18g\n' % ('.color', color))
         if edge_index != None:
             print(points.shape)
@@ -738,25 +596,27 @@ def graphs2bild(total_points, points, edge_indices, amps, title, box_size, ang_p
             print(y.shape)
             for k in range(y.shape[0]):
                 f.write("%s %.18g %.18g %.18g %.18g %.18g %.18g %.18g\n" % (
-                    '.cylinder', y[k, 0], y[k, 1], y[k, 2], y[k, 3], y[k, 4], y[k, 5], 0.12))
+                    '.cylinder', y[k, 0], y[k, 1], y[k, 2], y[k, 3], y[k, 4], y[k, 5],
+                    0.12))
         for k in range(points.shape[0]):
             f.write("%s %.18g %.18g %.18g %.18g\n" % (
-                '.sphere', points[k, 0], points[k, 1], points[k, 2], 0.04*amps[tk+k]))
-        color = color+10
+                '.sphere', points[k, 0], points[k, 1], points[k, 2],
+                0.04 * amps[tk + k]))
+        color = color + 10
         tk += points.shape[0]
     f.close()
 
 
 def field2bild(points, field, title, box_size, ang_pix):
-    f = open(title+'.bild', 'a')
+    f = open(title + '.bild', 'a')
     color = 8
-    cols = torch.linalg.norm(points-field, dim=1)
+    cols = torch.linalg.norm(points - field, dim=1)
     points = points.detach().cpu().numpy()
-    points = (points+0.5)*box_size*ang_pix
+    points = (points + 0.5) * box_size * ang_pix
     field = field.detach().cpu().numpy()
-    field = (field+0.5)*box_size*ang_pix
+    field = (field + 0.5) * box_size * ang_pix
     y = np.concatenate([points, field], 1)
-    cols = torch.round(cols/torch.max(cols)*65).long()
+    cols = torch.round(cols / torch.max(cols) * 65).long()
     for k in range(y.shape[0]):
         f.write('%s %.18g\n' % ('.color', cols[k]))
         f.write("%s %.18g %.18g %.18g %.18g %.18g %.18g %.18g\n" % (
@@ -765,27 +625,27 @@ def field2bild(points, field, title, box_size, ang_pix):
 
 
 def points2bild(points, amps, title, box_size, ang_pix):
-    f = open(title+'.bild', 'a')
+    f = open(title + '.bild', 'a')
     color = 8
     for points, amps in zip(points, amps):
         points = points.detach().cpu().numpy()
-        points = (points+0.5)*box_size*ang_pix
+        points = (points + 0.5) * box_size * ang_pix
         f.write('%s %.18g\n' % ('.color', color))
         for k in range(points.shape[0]):
             f.write("%s %.18g %.18g %.18g %.18g\n" % (
-                '.sphere', points[k, 0], points[k, 1], points[k, 2], 0.02*amps[k]))
-        color = color+20
+                '.sphere', points[k, 0], points[k, 1], points[k, 2], 0.02 * amps[k]))
+        color = color + 20
     f.close()
 
 
 def series2xyz(points, title, box_size, ang_pix):
     if type(points).__module__ == 'torch':
-        points = box_size*ang_pix*(0.5+points.detach().data.cpu().numpy())
+        points = box_size * ang_pix * (0.5 + points.detach().data.cpu().numpy())
     atomtype = ("C",)
     for i in range(points.shape[0]):
         print(i)
         pp = points[i].squeeze()
-        f = open(title+'.xyz', 'a')
+        f = open(title + '.xyz', 'a')
         f.write("%d\n%s\n" % (points[i].size / 3, title))
         for x in points.reshape(-1, 3):
             f.write("%s %.18g %.18g %.18g\n" % (atomtype, x[0], x[1], x[2]))
@@ -798,15 +658,15 @@ def power_spec2(F1, batch_reduce=None):
     else:
         F1 = torch.fft.fftn(F1, dim=[-2, -1])
     N = F1.shape[-1]
-    ind = torch.linspace(-(N-1)/2, (N-1)/2-1, N)
-    end_ind = torch.round(torch.tensor(N/2)).long()
+    ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
+    end_ind = torch.round(torch.tensor(N / 2)).long()
     X, Y = torch.meshgrid(ind, ind)
-    R = torch.fft.fftshift(torch.round(torch.pow(X**2+Y**2, 0.5)).long())
-    res = torch.arange(start=0, end=end_ind)**2,
+    R = torch.fft.fftshift(torch.round(torch.pow(X ** 2 + Y ** 2, 0.5)).long())
+    res = torch.arange(start=0, end=end_ind) ** 2,
     # p_s = scatter(torch.abs(F1.flatten(start_dim=-2)**2),
     #              R.flatten().to(F1.device), reduce='mean')
-    p_s = scatter_mean_sub(torch.abs(F1.flatten(start_dim=-2)**2),
-                           R.flatten().to(F1.device))
+    p_s = scatter_mean(torch.abs(F1.flatten(start_dim=-2) ** 2),
+                       R.flatten().to(F1.device))
     if batch_reduce == 'mean':
         p_s = torch.mean(p_s, 0)
     p = p_s[R]
@@ -819,15 +679,15 @@ def radial_avg2(F1, batch_reduce=None):
     else:
         F1 = torch.fft.fftn(F1, dim=[-2, -1])
     N = F1.shape[-1]
-    ind = torch.linspace(-(N-1)/2, (N-1)/2-1, N)
-    end_ind = torch.round(torch.tensor(N/2)).long()
+    ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
+    end_ind = torch.round(torch.tensor(N / 2)).long()
     X, Y = torch.meshgrid(ind, ind)
-    R = torch.fft.fftshift(torch.round(torch.pow(X**2+Y**2, 0.5)).long())
-    res = torch.arange(start=0, end=end_ind)**2,
+    R = torch.fft.fftshift(torch.round(torch.pow(X ** 2 + Y ** 2, 0.5)).long())
+    res = torch.arange(start=0, end=end_ind) ** 2,
     # p_s = scatter(torch.abs(F1.flatten(start_dim=-2)),
     #               R.flatten().to(F1.device), reduce='mean')
-    p_s = scatter_mean_sub(torch.abs(F1.flatten(start_dim=-2)),
-                           R.flatten().to(F1.device))
+    p_s = scatter_mean(torch.abs(F1.flatten(start_dim=-2)),
+                       R.flatten().to(F1.device))
     if batch_reduce == 'mean':
         p_s = torch.mean(p_s, 0)
     p = p_s[R]
@@ -836,12 +696,12 @@ def radial_avg2(F1, batch_reduce=None):
 
 def prof2radim(w, out_value=0):
     N = w.shape[0]
-    ind = torch.linspace(-N, N-1, 2*N)
+    ind = torch.linspace(-N, N - 1, 2 * N)
     X, Y = torch.meshgrid(ind, ind)
-    R = torch.fft.fftshift(torch.round(torch.pow(X**2+Y**2, 0.5)).long())
-    R[R > N-1] = N-1
+    R = torch.fft.fftshift(torch.round(torch.pow(X ** 2 + Y ** 2, 0.5)).long())
+    R[R > N - 1] = N - 1
     W = w[R]
-    W[R == N-1] = out_value
+    W[R == N - 1] = out_value
     return W
 
 
@@ -851,11 +711,11 @@ def RadialAvg(F1, batch_reduce=None):
     else:
         F1 = torch.fft.fftn(F1, dim=[-3, -2, -1])
     N = F1.shape[-1]
-    ind = torch.linspace(-(N-1)/2, (N-1)/2-1, N)
-    end_ind = torch.round(torch.tensor(N/2)).long()
+    ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
+    end_ind = torch.round(torch.tensor(N / 2)).long()
     X, Y, Z = torch.meshgrid(ind, ind, ind)
-    R = torch.fft.fftshift(torch.round(torch.pow(X**2+Y**2+Z**2, 0.5)).long())
-    res = torch.arange(start=0, end=end_ind)**2,
+    R = torch.fft.fftshift(torch.round(torch.pow(X ** 2 + Y ** 2 + Z ** 2, 0.5)).long())
+    res = torch.arange(start=0, end=end_ind) ** 2,
 
     if len(F1.shape) == 3:
         p_s = scatter(torch.abs(F1.flatten(start_dim=-3)),
@@ -871,18 +731,18 @@ def RadialAvgProfile(F1, batch_reduce=None):
     device = F1.device
     print(device)
     N = F1.shape[-1]
-    ind = torch.linspace(-(N-1)/2, (N-1)/2-1, N)
-    end_ind = torch.round(torch.tensor(N/2)).long()
+    ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
+    end_ind = torch.round(torch.tensor(N / 2)).long()
     X, Y, Z = torch.meshgrid(ind, ind, ind)
     R = torch.fft.fftshift(torch.round(
-        torch.pow(X**2+Y**2+Z**2, 0.5)).long()).to(device)
-    res = torch.arange(start=0, end=end_ind)**2,
+        torch.pow(X ** 2 + Y ** 2 + Z ** 2, 0.5)).long()).to(device)
+    res = torch.arange(start=0, end=end_ind) ** 2,
 
     if len(F1.shape) == 3:
         # p_s = scatter(torch.abs(F1.flatten(start_dim=-3)),
         #               R.flatten(), reduce='mean')
-        p_s = scatter_mean_sub(torch.abs(F1.flatten(start_dim=-3)),
-                               R.flatten())
+        p_s = scatter_mean(torch.abs(F1.flatten(start_dim=-3)),
+                           R.flatten())
     Prof = torch.zeros_like(R).float().to(device)
     Prof[R] = p_s[R]
 
@@ -890,9 +750,9 @@ def RadialAvgProfile(F1, batch_reduce=None):
 
 
 def fourier_shift_2d(
-        grid_ft,
-        xshift,
-        yshift
+    grid_ft,
+    xshift,
+    yshift
 ):
     s = grid_ft.shape[-1]
     xshift = -xshift / float(s)
@@ -904,8 +764,8 @@ def fourier_shift_2d(
         x = x.to(grid_ft.device)
         y = y.to(grid_ft.device)
         dot_prod = 2 * np.pi * \
-            (x[None, :, :] * xshift[:, None, None] +
-             y[None, :, :] * yshift[:, None, None])
+                   (x[None, :, :] * xshift[:, None, None] +
+                    y[None, :, :] * yshift[:, None, None])
         dot_prod = torch.fft.fftshift(dot_prod, dim=[-1, -2])
         a = torch.cos(dot_prod)
         b = torch.sin(dot_prod)
@@ -913,8 +773,8 @@ def fourier_shift_2d(
         ls = np.linspace(-s // 2, s // 2 - 1, s),
         y, x = np.meshgrid(ls, ls, indexing="ij")
         dot_prod = 2 * np.pi * \
-            (x[None, :, :] * xshift[:, None, None] +
-             y[None, :, :] * yshift[:, None, None])
+                   (x[None, :, :] * xshift[:, None, None] +
+                    y[None, :, :] * yshift[:, None, None])
         dot_prod = torch.fft.fftshift(dot_prod, dim=[-1, -2])
         a = np.cos(dot_prod)
         b = np.sin(dot_prod)
@@ -928,7 +788,7 @@ def fourier_shift_2d(
 
 def FlipZ(F1):
     Fz = torch.flip(F1, [-3])
-    return(Fz)
+    return (Fz)
 
 
 def PowerSpec(F1, batch_reduce=None):
@@ -937,17 +797,17 @@ def PowerSpec(F1, batch_reduce=None):
     else:
         F1 = torch.fft.fftn(F1, dim=[-3, -2, -1])
     N = F1.shape[-1]
-    ind = torch.linspace(-(N-1)/2, (N-1)/2-1, N)
-    end_ind = torch.round(torch.tensor(N/2)).long()
+    ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
+    end_ind = torch.round(torch.tensor(N / 2)).long()
     X, Y, Z = torch.meshgrid(ind, ind, ind)
-    R = torch.fft.fftshift(torch.round(torch.pow(X**2+Y**2+Z**2, 0.5)).long())
-    res = torch.arange(start=0, end=end_ind)**2,
+    R = torch.fft.fftshift(torch.round(torch.pow(X ** 2 + Y ** 2 + Z ** 2, 0.5)).long())
+    res = torch.arange(start=0, end=end_ind) ** 2,
 
     if len(F1.shape) == 3:
         # p_s = scatter(torch.abs(F1.flatten(start_dim=-3))
         #              ** 2, R.flatten(), reduce='sum')
-        p_s = scatter_sub(torch.abs(F1.flatten(start_dim=-3))
-                          ** 2, R.flatten())
+        p_s = scatter(torch.abs(F1.flatten(start_dim=-3))
+                      ** 2, R.flatten())
     return p_s[:end_ind], res[0]
 
 
@@ -966,29 +826,31 @@ def FSC(F1, F2, ang_pix=1, visualize=False):
         print('The volumes have to be the same size')
 
     N = F1.shape[-1]
-    ind = torch.linspace(-(N-1)/2, (N-1)/2-1, N)
-    end_ind = torch.round(torch.tensor(N/2)).long()
+    ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
+    end_ind = torch.round(torch.tensor(N / 2)).long()
     X, Y, Z = torch.meshgrid(ind, ind, ind)
     R = torch.fft.fftshift(torch.round(
-        torch.pow(X**2+Y**2+Z**2, 0.5)).long()).to(device)
+        torch.pow(X ** 2 + Y ** 2 + Z ** 2, 0.5)).long()).to(device)
 
     if len(F1.shape) == 3:
-        num = torch.zeros(torch.max(R)+1).to(device)
-        den1 = torch.zeros(torch.max(R)+1).to(device)
-        den2 = torch.zeros(torch.max(R)+1).to(device)
+        num = torch.zeros(torch.max(R) + 1).to(device)
+        den1 = torch.zeros(torch.max(R) + 1).to(device)
+        den2 = torch.zeros(torch.max(R) + 1).to(device)
         num.scatter_add_(0, R.flatten(), torch.real(
-            F1*torch.conj(F2)).flatten())
-        den = torch.pow(den1.scatter_add_(0, R.flatten(), torch.abs(F1.flatten(start_dim=-3))**2)
-                        * den2.scatter_add_(0, R.flatten(), torch.abs(F2.flatten(start_dim=-3))**2), 0.5)
-        FSC = num/den
-    res = N*ang_pix/torch.arange(end_ind)
+            F1 * torch.conj(F2)).flatten())
+        den = torch.pow(
+            den1.scatter_add_(0, R.flatten(), torch.abs(F1.flatten(start_dim=-3)) ** 2)
+            * den2.scatter_add_(0, R.flatten(),
+                                torch.abs(F2.flatten(start_dim=-3)) ** 2), 0.5)
+        FSC = num / den
+    res = N * ang_pix / torch.arange(end_ind)
     FSC[0] = 1
     if visualize == True:
         plt.figure(figsize=(10, 10))
         plt.rcParams['axes.xmargin'] = 0
         plt.plot(FSC[:end_ind].cpu(), c='r')
-        plt.plot(torch.ones(end_ind)*0.5, c='black', linestyle='dashed')
-        plt.plot(torch.ones(end_ind)*0.143, c='slategrey', linestyle='dotted')
+        plt.plot(torch.ones(end_ind) * 0.5, c='black', linestyle='dashed')
+        plt.plot(torch.ones(end_ind) * 0.143, c='slategrey', linestyle='dotted')
         plt.xticks(torch.arange(start=0, end=end_ind, step=10), labels=np.round(
             res[torch.arange(start=0, end=end_ind, step=10)].numpy(), 1))
         plt.show()
@@ -1029,9 +891,9 @@ def select_subset(starfile, subset_indices, outname):
                     else:
                         if startcount == 0:
                             startcount = count
-                        if count-startcount in subset_indices:
+                        if count - startcount in subset_indices:
                             output.write(i)
-                count = count+1
+                count = count + 1
             output.close()
 
 
@@ -1070,7 +932,6 @@ def add_weight_decay_to_named_parameters(
 
 
 def pdb2points(name, random=False):
-
     pdb = PDBParser()
     cif = MMCIFParser()
 
@@ -1123,7 +984,6 @@ def points2pdb(name, outname, points, random=False):
 
 
 def pdb2graph(name):
-
     pdb = PDBParser()
     cif = MMCIFParser()
 
@@ -1145,7 +1005,7 @@ def pdb2graph(name):
             cm = res.center_of_mass()
             try:
                 coords.append(res['CA'].get_coord())
-                direction.append(cm-res['CA'].get_coord())
+                direction.append(cm - res['CA'].get_coord())
                 amp.append(len(res.child_list))
                 amp.append(len(res.child_list))
             except:
@@ -1160,14 +1020,20 @@ def pdb2graph(name):
 
         if total_length == 0:
             gr = torch.stack([torch.arange(
-                start=0, end=coords.shape[0]-1), torch.arange(start=1, end=coords.shape[0])], 0)
+                start=0, end=coords.shape[0] - 1),
+                torch.arange(start=1, end=coords.shape[0])], 0)
             gr = torch.cat(
-                [gr, torch.tensor([coords.shape[0]-1, coords.shape[0]-1]).unsqueeze(1)], 1)
+                [gr,
+                 torch.tensor([coords.shape[0] - 1, coords.shape[0] - 1]).unsqueeze(1)],
+                1)
         else:
-            gr_c = torch.stack([torch.arange(start=total_length, end=total_length+coords.shape[0]-1),
-                               torch.arange(start=total_length+1, end=total_length+coords.shape[0])], 0)
+            gr_c = torch.stack([torch.arange(start=total_length,
+                                             end=total_length + coords.shape[0] - 1),
+                                torch.arange(start=total_length + 1,
+                                             end=total_length + coords.shape[0])], 0)
             gr_c = torch.cat([gr_c, torch.tensor(
-                [total_length+coords.shape[0]-1, total_length+coords.shape[0]-1]).unsqueeze(1)], 1)
+                [total_length + coords.shape[0] - 1,
+                 total_length + coords.shape[0] - 1]).unsqueeze(1)], 1)
             gr = torch.cat([gr, gr_c], 1)
         if total_length == 0:
             total_coords = coords
@@ -1180,24 +1046,24 @@ def pdb2graph(name):
             total_amp = torch.cat([total_amp, amp], 0)
         total_length += coords.shape[0]
 
-    diff1 = total_coords[gr[0]]-total_coords[gr[1]]
+    diff1 = total_coords[gr[0]] - total_coords[gr[1]]
     diffnorm1 = torch.linalg.norm(diff1, dim=1)
-    diff = total_coords[gr[0]]-total_coords[gr[1]]
+    diff = total_coords[gr[0]] - total_coords[gr[1]]
     gr = gr[:, diffnorm1 < 7]
     randc = torch.randn_like(total_coords)
-    randc /= torch.stack(3*[torch.linalg.norm(randc, dim=1)], 1)
+    randc /= torch.stack(3 * [torch.linalg.norm(randc, dim=1)], 1)
     zero_inds = torch.linalg.norm(diff, dim=1) == 0
     diff[zero_inds == True] = diff[torch.roll(zero_inds == True, -1)]
-    #norms = torch.cross(direction,randc)
+    # norms = torch.cross(direction,randc)
     norms = total_dirs.float()
     zinds = torch.where(torch.linalg.norm(norms, dim=1) == 0)
     norms[zinds[0]] = torch.cross(diff[zinds[0]], randc[zinds[0]]).float()
-    norms = norms/torch.stack(3*[torch.linalg.norm(norms, dim=1)], 1)*3.7
-    add_coords = total_coords+norms
+    norms = norms / torch.stack(3 * [torch.linalg.norm(norms, dim=1)], 1) * 3.7
+    add_coords = total_coords + norms
 
     add1 = torch.arange(start=0, end=len(total_coords))
     add2 = torch.arange(start=len(total_coords),
-                        end=len(total_coords)+len(add_coords))
+                        end=len(total_coords) + len(add_coords))
 
     gr_add = torch.stack([add1, add2], 0)
     gr = torch.cat([gr, gr_add], 1)
@@ -1216,9 +1082,9 @@ def pdb2allatoms(names, box_size, ang_pix):
         atompos = pdb2points(name)
         atoms.append(atompos)
     atom_positions = torch.cat(atoms, 0)
-    atom_positions = atom_positions/(box_size*ang_pix)
+    atom_positions = atom_positions / (box_size * ang_pix)
     if torch.min(atom_positions) > 0:  # correct for normal pdbs
-        atom_positions = atom_positions-0.5
+        atom_positions = atom_positions - 0.5
 
     return atom_positions
 
@@ -1230,7 +1096,7 @@ def initial_optimization(cons_model, atom_model, device, directory, angpix, N_ep
     V0 = atom_model.generate_volume(r0.to(device), t0.to(device))
     V0 = V0[0].float()
     box_size = V0.shape[0]
-    with mrcfile.new(directory+'/optimization_volume.mrc', overwrite=True) as mrc:
+    with mrcfile.new(directory + '/optimization_volume.mrc', overwrite=True) as mrc:
         mrc.set_data(V0.detach().cpu().numpy())
     atom_model.requires_grad = False
     cons_model.pos.requires_grad = False
@@ -1254,7 +1120,7 @@ def initial_optimization(cons_model, atom_model, device, directory, angpix, N_ep
         loss.backward()
         coarse_optimizer.step()
 
-    with mrcfile.new(directory+'/coarse_initial_volume.mrc', overwrite=True) as mrc:
+    with mrcfile.new(directory + '/coarse_initial_volume.mrc', overwrite=True) as mrc:
         mrc.set_data(V[0].detach().cpu().numpy())
 
     print('Total FSC value:', torch.sum(fsc))
@@ -1264,7 +1130,7 @@ def load_models(path, device, box_size, n_classes):
     cp = torch.load(path, map_location=device)
     encoder_half1 = cp['encoder_half1']
     encoder_half2 = cp['encoder_half2']
-    #cons_model_l = cp['consensus']
+    # cons_model_l = cp['consensus']
     decoder_half1 = cp['decoder_half1']
     decoder_half1.p2i = PointsToImages(box_size, n_classes, 1)
     decoder_half1.image_smoother = FourierImageSmoother(
@@ -1280,21 +1146,21 @@ def load_models(path, device, box_size, n_classes):
     decoder_half1.load_state_dict(cp['decoder_half1_state_dict'])
     decoder_half2.load_state_dict(cp['decoder_half2_state_dict'])
     poses.load_state_dict(cp['poses_state_dict'])
-    #cons_model.p2i.device = device
+    # cons_model.p2i.device = device
     decoder_half1.p2i.device = device
     decoder_half2.p2i.device = device
-    #cons_model.proj.device = device
+    # cons_model.proj.device = device
     decoder_half1.projector.device = device
     decoder_half2.projector.device = device
-    #cons_model.i2F.device = device
+    # cons_model.i2F.device = device
     decoder_half1.image_smoother.device = device
     decoder_half2.image_smoother.device = device
-    #cons_model.p2v.device = device
+    # cons_model.p2v.device = device
     decoder_half1.p2v.device = device
     decoder_half1.device = device
     decoder_half2.p2v.device = device
     decoder_half2.device = device
-    #cons_model.device = device
+    # cons_model.device = device
     decoder_half1.to(device)
     decoder_half2.to(device)
     # cons_model.to(device)
@@ -1331,9 +1197,9 @@ class spatial_grad(nn.Module):
         h_x = x.size()[3]
         w_x = x.size()[4]
 
-        t_grad = (x[:, :, 2:, :, :]-x[:, :, :h_x-2, :, :])
-        h_grad = (x[:, :, :, 2:, :]-x[:, :, :, :h_x-2, :])
-        w_grad = (x[:, :, :, :, 2:]-x[:, :, :, :, :w_x-2])
+        t_grad = (x[:, :, 2:, :, :] - x[:, :, :h_x - 2, :, :])
+        h_grad = (x[:, :, :, 2:, :] - x[:, :, :, :h_x - 2, :])
+        w_grad = (x[:, :, :, :, 2:] - x[:, :, :, :, :w_x - 2])
         t_grad = torch.nn.functional.pad(t_grad[0, 0], [0, 0, 0, 0, 1, 1])
         h_grad = torch.nn.functional.pad(h_grad[0, 0], [0, 0, 1, 1, 0, 0])
         w_grad = torch.nn.functional.pad(w_grad[0, 0], [1, 1, 0, 0, 0, 0])
@@ -1341,7 +1207,7 @@ class spatial_grad(nn.Module):
         return grad
 
     def _tensor_size(self, t):
-        return t.size()[1]*t.size()[2]*t.size()[3]
+        return t.size()[1] * t.size()[2] * t.size()[3]
 
 
 def compute_threshold(V):
@@ -1409,7 +1275,7 @@ def make_equidistant(x, y, N):
     return n_points[::frac, :], points
 
 
-def my_knn_graph(X, k, workers):
+def knn_graph(X, k, workers):
     dev = X.device
     s_m = kneighbors_graph(X.cpu(), k, n_jobs=workers)
     s_m_coo = s_m.tocoo()
@@ -1421,7 +1287,7 @@ def my_knn_graph(X, k, workers):
     return gr.to(dev)
 
 
-def my_radius_graph(X, r, workers):
+def radius_graph(X, r, workers):
     dev = X.device
     s_m = radius_neighbors_graph(X.cpu(), r.cpu(), n_jobs=workers)
     s_m_coo = s_m.tocoo()
@@ -1431,20 +1297,20 @@ def my_radius_graph(X, r, workers):
     return gr.to(dev)
 
 
-def scatter_sub(src, inds, dim=-1):
+def scatter(src, inds, dim=-1):
     inds = inds.expand(src.size())
     size = list(src.size())
-    size[dim] = int(inds.max())+1
+    size[dim] = int(inds.max()) + 1
     out = torch.zeros(size, dtype=src.dtype, device=src.device)
     out.scatter_add_(dim, inds, src)
     return out.scatter_add_(dim, inds, src)
 
 
-def scatter_mean_sub(src, inds, dim=-1):
-    out_sum = scatter_sub(src, inds, dim)
+def scatter_mean(src, inds, dim=-1):
+    out_sum = scatter(src, inds, dim)
     ones = torch.ones(inds.size(), dtype=src.dtype, device=src.device)
-    count = scatter_sub(ones, inds, dim)
-    return out_sum/count
+    count = scatter(ones, inds, dim)
+    return out_sum / count
 
 
 def calculate_grid_oversampling_factor(box_size: int) -> int:

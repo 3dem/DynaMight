@@ -1,10 +1,12 @@
 import torch
 from torch.utils.data import DataLoader
 
+from ..models.constants import ConsensusInitializationMode
 from ..models.encoder import HetEncoder
 from ..models.decoder import DisplacementDecoder
 from ..data.handlers.particle_image_preprocessor import ParticleImagePreprocessor
-from ..utils.utils_new import fourier_loss, geometric_loss
+from ..models.losses import GeometricLoss
+from ..utils.utils_new import fourier_loss
 
 
 def calibrate_regularization_parameter(
@@ -16,9 +18,9 @@ def calibrate_regularization_parameter(
     particle_euler_angles: torch.nn.Parameter,
     data_normalization_mask: torch.Tensor,
     regularization_factor: float,
+    mode: ConsensusInitializationMode,
     subset_percentage: float = 10,
     batch_size: int = 100,
-
 ):
     """Compute a regularisation parameter for the geometry regularisation function.
 
@@ -56,6 +58,7 @@ def calibrate_regularization_parameter(
         decoder=decoder,
         particle_euler_angles=particle_euler_angles,
         particle_shifts=particle_shifts,
+        mode=mode,
     )
     data_norm = _compute_data_norm(
         dataloader=dataloader,
@@ -140,8 +143,16 @@ def _compute_geometry_norm(
     decoder: DisplacementDecoder,
     particle_euler_angles: torch.nn.Parameter,
     particle_shifts: torch.nn.Parameter,
+    mode: ConsensusInitializationMode,
 ):
     geometry_norm = 0
+    geometric_loss = GeometricLoss(
+        mode=mode,
+        neighbour_loss_weight=0.01,
+        repulsion_weight=0.01,
+        outlier_weight=1,
+        deformation_regularity_weight=1,
+    )
     for batch_ndx, sample in enumerate(dataloader):
         # zero gradients
         encoder.zero_grad()
@@ -173,14 +184,13 @@ def _compute_geometry_norm(
 
         # compute loss
         geo_loss = geometric_loss(
-            pos=new_points,
+            deformed_positions=new_points,
+            mean_neighbour_distance=decoder.mean_neighbour_distance,
+            consensus_pairwise_distances=decoder.model_distances,
+            knn=decoder.neighbour_graph,
+            radius_graph=decoder.radius_graph,
             box_size=decoder.box_size,
             ang_pix=decoder.ang_pix,
-            dist=decoder.mean_neighbour_distance,
-            deformation=decoder.model_distances,
-            graph1=decoder.radius_graph,
-            graph2=decoder.neighbour_graph,
-            mode=decoder.loss_mode
         )
         try:
             geo_loss.backward()

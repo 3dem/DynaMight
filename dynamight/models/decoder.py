@@ -10,7 +10,7 @@ from dynamight.models.blocks import LinearBlock
 from dynamight.models.utils import positional_encoding
 from dynamight.utils.utils_new import PointProjector, PointsToImages, \
     FourierImageSmoother, PointsToVolumes, \
-    maskpoints, fourier_shift_2d, radial_index_mask3, radial_index_mask, my_knn_graph, my_radius_graph
+    maskpoints, fourier_shift_2d, radial_index_mask3, radial_index_mask, knn_graph, radius_graph
 
 
 # decoder turns set(s) of points into 2D image(s)
@@ -233,7 +233,7 @@ class DisplacementDecoder(torch.nn.Module):
 
     def compute_neighbour_graph(self):
         positions_ang = self.model_positions * self.box_size * self.ang_pix
-        knn = my_knn_graph(positions_ang, 2, workers=8)
+        knn = knn_graph(positions_ang, 2, workers=8)
         differences = positions_ang[knn[0]] - positions_ang[knn[1]]
         neighbour_distances = torch.pow(torch.sum(differences**2, dim=1), 0.5)
         self.neighbour_graph = knn
@@ -241,7 +241,7 @@ class DisplacementDecoder(torch.nn.Module):
 
     def compute_radius_graph(self):
         positions_ang = self.model_positions * self.box_size * self.ang_pix
-        self.radius_graph = my_radius_graph(
+        self.radius_graph = radius_graph(
             positions_ang, r=1.5*self.mean_neighbour_distance, workers=8
         )
         differences = positions_ang[self.radius_graph[0]
