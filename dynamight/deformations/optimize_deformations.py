@@ -38,7 +38,7 @@ from ..utils.utils_new import compute_threshold, initialize_consensus, \
     reset_all_linear_layer_weights, graph2bild, generate_form_factor, \
     prof2radim, visualize_latent, tensor_plot, tensor_imshow, tensor_scatter, \
     tensor_hist, apply_ctf, write_xyz, my_knn_graph, my_radius_graph, \
-    calculate_grid_oversampling_factor, generate_data_normalization_mask
+    calculate_grid_oversampling_factor, generate_data_normalization_mask, FSC
 from ._training_epoch_half import train_epoch
 from ._update_model import update_model_positions
 # from coarse_grain import optimize_coarsegraining
@@ -184,6 +184,11 @@ def optimize_deformations(
     batch = next(iter(data_loader_half1))
 
     # initialise preprocessor for particle images (masking)
+    regularization_factor_h1 = regularization_factor
+    regularization_factor_h2 = regularization_factor
+    consensus_update_rate_h1 = consensus_update_rate
+    consensus_update_rate_h2 = consensus_update_rate
+
     data_preprocessor = ParticleImagePreprocessor()
     data_preprocessor.initialize_from_stack(
         stack=batch["image"],
@@ -356,6 +361,8 @@ def optimize_deformations(
                   'Angstrom ;This distance is also used to construct the initial graph ')
 
     # assign indices to particles for half set division
+    print(decoder_half1.model_distances)
+    print(decoder_half1.mean_neighbour_distance)
     tot_latent_dim = encoder_half1.latent_dim
     half1_indices = []
     with torch.no_grad():
@@ -447,7 +454,7 @@ def optimize_deformations(
                 particle_shifts=shifts,
                 particle_euler_angles=angles,
                 data_normalization_mask=data_normalization_mask,
-                regularization_factor=regularization_factor,
+                regularization_factor=regularization_factor_h1,
                 subset_percentage=10,
                 batch_size=batch_size,
             )
@@ -462,7 +469,7 @@ def optimize_deformations(
                 particle_shifts=shifts,
                 particle_euler_angles=angles,
                 data_normalization_mask=data_normalization_mask,
-                regularization_factor=regularization_factor,
+                regularization_factor=regularization_factor_h2,
                 subset_percentage=10,
                 batch_size=batch_size,
             )
@@ -542,35 +549,45 @@ def optimize_deformations(
             new_pos_h2 = update_model_positions(particle_dataset, data_preprocessor, encoder_half2,
                                                 decoder_half2, shifts, angles, idix_half2, consensus_update_pooled_particles, batch_size)
 
-            if (
-                losses_half1['reconstruction_loss'] < old_loss_half1 and losses_half2[
-                    'reconstruction_loss'] < old_loss_half2) and consensus_update_rate != 0:
-                # cons_model.pos = torch.nn.Parameter((1-consensus_update_rate)*cons_model.pos+consensus_update_rate*min_npos,requires_grad=False)
+            if losses_half1['reconstruction_loss'] < old_loss_half1 and consensus_update_rate_h1 != 0:
                 decoder_half1.model_positions = torch.nn.Parameter(
                     (
-                        1 - consensus_update_rate) * decoder_half1.model_positions + consensus_update_rate * new_pos_h1,
-                    requires_grad=False)
-                decoder_half2.model_positions = torch.nn.Parameter(
-                    (
-                        1 - consensus_update_rate) * decoder_half2.model_positions + consensus_update_rate * new_pos_h2,
+                        1 - consensus_update_rate_h1) * decoder_half1.model_positions + consensus_update_rate_h1 * new_pos_h1,
                     requires_grad=False)
                 old_loss_half1 = losses_half1['reconstruction_loss']
+                nosub_ind_h1 = 0
+
+            if losses_half2['reconstruction_loss'] < old_loss_half2 and consensus_update_rate_h2 != 0:
+                decoder_half2.model_positions = torch.nn.Parameter(
+                    (
+                        1 - consensus_update_rate_h2) * decoder_half2.model_positions + consensus_update_rate_h2 * new_pos_h2,
+                    requires_grad=False)
                 old_loss_half2 = losses_half2['reconstruction_loss']
-                nosub_ind = 0
-            elif losses_half1['reconstruction_loss'] > old_loss_half1 and losses_half1[
-                    'reconstruction_loss'] > old_loss_half2:
-                nosub_ind += 1
-                print('No consensus updates for ', nosub_ind, ' epochs')
-                if nosub_ind == 1:
-                    consensus_update_rate *= 0.8
-                if consensus_update_rate < 0.1:
-                    consensus_update_rate = 0
+                nosub_ind_h2 = 0
+
+            if losses_half1['reconstruction_loss'] > old_loss_half1:
+                nosub_ind_h1 += 1
+                print('No consensus updates for ',
+                      nosub_ind_h1, ' epochs on half-set 1')
+                if nosub_ind_h1 == 1:
+                    consensus_update_rate_h1 *= 0.8
+                if consensus_update_rate_h1 < 0.1:
+                    consensus_update_rate_h1 = 0
                     reset_all_linear_layer_weights(decoder_half1)
-                    reset_all_linear_layer_weights(decoder_half2)
                     reset_all_linear_layer_weights(encoder_half1)
-                    reset_all_linear_layer_weights(encoder_half2)
-                    regularization_factor = 1
+                    regularization_factor_h1 = 1
                     decoder_half1.loss_mode = 'model'
+            if losses_half2['reconstruction_loss'] > old_loss_half2:
+                nosub_ind_h2 += 1
+                print('No consensus updates for ',
+                      nosub_ind_h2, ' epochs on half-set 2')
+                if nosub_ind_h2 == 1:
+                    consensus_update_rate_h2 *= 0.8
+                if consensus_update_rate_h2 < 0.1:
+                    consensus_update_rate_h2 = 0
+                    reset_all_linear_layer_weights(decoder_half2)
+                    reset_all_linear_layer_weights(encoder_half2)
+                    regularization_factor_h2 = 1
                     decoder_half2.loss_mode = 'model'
 
         with torch.no_grad():
@@ -619,6 +636,10 @@ def optimize_deformations(
 
             x = visualization_data_half1['projection_image'][0]
             yd = visualization_data_half1['target_image'][0]
+            V_h1 = decoder_half1.generate_consensus_volume()
+            V_h2 = decoder_half2.generate_consensus_volume()
+            fourier_shell_correlation, res = FSC(
+                V_h1[0].float(), V_h2[0].float(), ang_pix)
             if x.is_complex():
                 pass
             else:
@@ -686,14 +707,18 @@ def optimize_deformations(
                             tensor_plot(decoder_half1.amp.detach()), epoch)
             summ.add_figure("Data/cons_amp_h2",
                             tensor_plot(decoder_half2.amp.detach()), epoch)
-
+            summ.add_figure("Data/FSC_half_maps",
+                            tensor_plot(fourier_shell_correlation), epoch)
             summ.add_scalar("Loss/N_graph_h1", N_graph_h1, epoch)
             summ.add_scalar("Loss/N_graph_h2", N_graph_h2, epoch)
             summ.add_scalar("Loss/reg_param_h1",
                             lambda_regularization_half1, epoch)
             summ.add_scalar("Loss/reg_param_h2",
                             lambda_regularization_half2, epoch)
-            summ.add_scalar("Loss/substitute", consensus_update_rate, epoch)
+            summ.add_scalar("Loss/substitute_h1",
+                            consensus_update_rate_h1, epoch)
+            summ.add_scalar("Loss/substitute_h2",
+                            consensus_update_rate_h2, epoch)
             summ.add_scalar("Loss/pose_error", angular_error, epoch)
             summ.add_scalar("Loss/trans_error", translational_error, epoch)
             summ.add_figure("Data/output", tensor_imshow(torch.fft.fftshift(

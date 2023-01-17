@@ -89,7 +89,7 @@ def geometric_loss(pos, box_size, ang_pix, dist, mode, deformation=None, graph1=
                 distance_loss = torch.mean(gaussian_distance(dis, dist))
             except:
                 #gr = radius_graph(pos, distance+0.5, num_workers=8)
-                gr = my_radius_graph(pos, distance+0.5, workers=8)
+                gr = my_radius_graph(pos, distance+0.5*distance, workers=8)
                 dis = torch.pow(
                     1e-7+torch.sum((pos[gr[0]]-pos[gr[1]])**2, 1), 0.5)
                 distance_loss = torch.mean(gaussian_distance(dis, dist))
@@ -130,7 +130,8 @@ def geometric_loss(pos, box_size, ang_pix, dist, mode, deformation=None, graph1=
             try:
                 dis = torch.pow(
                     1e-7+torch.sum((pos[:, graph1[0]]-pos[:, graph1[1]])**2, 2), 0.5)
-                distance_loss = torch.mean(gaussian_distance(dis, dist))
+                distance_loss = torch.mean(
+                    gaussian_distance(dis, dist, ang_pix, box_size))
             except:
                 print(
                     'Radius graph has to be provided for batch application of neighbour and distance loss')
@@ -165,17 +166,22 @@ def geometric_loss(pos, box_size, ang_pix, dist, mode, deformation=None, graph1=
 
     #print('distance:', distance_loss, 'neighbour:', neighbour_loss, 'outlier:', outlier_loss)
     if mode == 'density':
-        return 0.01*neighbour_loss + 0.01*distance_loss + outlier_loss + deformation_loss
+        print(neighbour_loss)
+        print(distance_loss)
+        print(outlier_loss)
+        print(deformation_loss)
+        return 0.01*neighbour_loss + distance_loss + outlier_loss + deformation_loss
     elif mode == 'model':
         return deformation_loss
 
 
-def gaussian_distance(d, distance):
+def gaussian_distance(d, distance, ang_pix, box_size):
     if distance < 0.5:
-        distance = 0.5
-    distance = 0.5
-    x1 = torch.clamp(d, max=distance)
-    x1 = (x1-distance)**2
+        cutoff_distance = 0.5
+    else:
+        cutoff_distance = distance/3
+    x1 = torch.clamp(d, max=cutoff_distance)
+    x1 = (x1-cutoff_distance)**2
     #x2 = torch.clamp(d,min = 1.6)
     #x2 = 1-(1-(4.2-2*x2)**2)**2
     return x1
@@ -191,9 +197,11 @@ def neighbour_activation(v):
 
 
 def distance_activation(d, distance):
+    cutoff_distance = distance
     # x = torch.zeros_like(d)
     # x1 = torch.clamp(d,max = distance)
-    x2 = torch.clamp(d, min=distance, max=distance+0.5*distance)
+    x2 = torch.clamp(d, min=cutoff_distance,
+                     max=cutoff_distance+0.5*cutoff_distance)
     #x1 = distance-x1
     #x1 = torch.nn.ReLU(x1)+1
     #x2[x2==distance] = distance + 0.5
@@ -1337,7 +1345,7 @@ class spatial_grad(nn.Module):
 
 
 def compute_threshold(V):
-    th = np.percentile(V.flatten().cpu(), 99)
+    th = np.percentile(V.flatten().cpu(), 98)
     return th
 
 

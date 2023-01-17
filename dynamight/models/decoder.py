@@ -235,7 +235,7 @@ class DisplacementDecoder(torch.nn.Module):
         positions_ang = self.model_positions * self.box_size * self.ang_pix
         knn = my_knn_graph(positions_ang, 2, workers=8)
         differences = positions_ang[knn[0]] - positions_ang[knn[1]]
-        neighbour_distances = torch.linalg.norm(differences, dim=1)
+        neighbour_distances = torch.pow(torch.sum(differences**2, dim=1), 0.5)
         self.neighbour_graph = knn
         self.mean_neighbour_distance = torch.mean(neighbour_distances)
 
@@ -244,9 +244,9 @@ class DisplacementDecoder(torch.nn.Module):
         self.radius_graph = my_radius_graph(
             positions_ang, r=1.5*self.mean_neighbour_distance, workers=8
         )
-        differences = self.model_positions[self.radius_graph[0]
-                                           ] - self.model_positions[self.radius_graph[1]]
-        self.model_distances = torch.linalg.norm(differences)
+        differences = positions_ang[self.radius_graph[0]
+                                    ] - positions_ang[self.radius_graph[1]]
+        self.model_distances = torch.pow(torch.sum(differences**2, 1), 0.5)
 
     @property
     def physical_parameters(self) -> torch.nn.ParameterList:
