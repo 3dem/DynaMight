@@ -244,8 +244,8 @@ class DisplacementDecoder(torch.nn.Module):
         self.radius_graph = my_radius_graph(
             positions_ang, r=1.5*self.mean_neighbour_distance, workers=8
         )
-        differences = positions_ang[self.radius_graph[0]
-                                    ] - positions_ang[self.radius_graph[1]]
+        differences = self.model_positions[self.radius_graph[0]
+                                           ] - self.model_positions[self.radius_graph[1]]
         self.model_distances = torch.linalg.norm(differences)
 
     @property

@@ -8,7 +8,7 @@ from ..utils.utils_new import fourier_loss, geometric_loss
 
 
 def calibrate_regularization_parameter(
-    dataset: torch.utils.data.DataSet,
+    dataset: torch.utils.data.Dataset,
     data_preprocessor: ParticleImagePreprocessor,
     encoder: HetEncoder,
     decoder: DisplacementDecoder,
@@ -25,7 +25,7 @@ def calibrate_regularization_parameter(
     Parameters
     ----------
     data_normalization_mask
-    dataset: torch.utils.data.DataSet,
+    dataset: torch.utils.data.Dataset,
         half set of data from which a subset will be taken.
     data_preprocessor: ParticleImagePreprocessor
         preprocessor for data.
@@ -195,4 +195,3 @@ def _compute_geometry_norm(
             except:
                 geometry_norm = 1
     return geometry_norm
-
