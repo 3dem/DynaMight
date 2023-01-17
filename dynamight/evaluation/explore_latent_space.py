@@ -11,6 +11,7 @@ import numpy as np
 import mrcfile
 import torch.nn.functional as F
 from ..data.handlers.particle_image_preprocessor import ParticleImagePreprocessor
+from ..data.dataloaders.relion import RelionDataset
 from torch.utils.data import DataLoader
 
 from ..utils.utils_new import initialize_dataset, pdb2points, bezier_curve, make_equidistant
@@ -26,7 +27,7 @@ from qtpy.QtCore import Qt
 from magicgui import widgets
 from matplotlib.widgets import LassoSelector, PolygonSelector
 import starfile
-#from matplotlib.path import Path
+# from matplotlib.path import Path
 from tqdm import tqdm
 
 from typer import Option
@@ -74,104 +75,68 @@ def explore_latent_space(
     circular_mask_thickness = soft_edge_width
 
     encoder = cp['encoder_' + 'half' + str(half_set)]
-    cons_model = cp['consensus']
-
     decoder = cp['decoder_' + 'half' + str(half_set)]
     poses = cp['poses']
 
-    dataset, diameter_ang, box_size, ang_pix, optics_group = initialize_dataset(refinement_star_file,
-                                                                                soft_edge_width,
-                                                                                preload_images,
-                                                                                particle_diameter)
-    try:
-        cons_model.vol_box
-        decoder.vol_box
-    except:
-        cons_model.vol_box = box_size
-        decoder.vol_box = box_size
+    relion_dataset = RelionDataset(
+        path=refinement_star_file,
+        circular_mask_thickness=soft_edge_width,
+        particle_diameter=particle_diameter,
+    )
+    dataset = relion_dataset.make_particle_dataset()
+    diameter_ang = relion_dataset.particle_diameter
+    box_size = relion_dataset.box_size
+    ang_pix = relion_dataset.pixel_spacing_angstroms
 
     encoder.load_state_dict(
         cp['encoder_' + 'half' + str(half_set) + '_state_dict'])
-    cons_model.load_state_dict(cp['consensus_state_dict'])
     decoder.load_state_dict(
         cp['decoder_' + 'half' + str(half_set) + '_state_dict'])
     poses.load_state_dict(cp['poses_state_dict'])
+
+    '''Computing indices for the second half set'''
+
     if half_set == 1:
-        # indices = np.arange(len(dataset))
         indices = cp['indices_half1'].cpu().numpy()
     else:
         inds_half1 = cp['indices_half1'].cpu().numpy()
         indices = np.asarray(
             list(set(range(len(dataset))) - set(list(inds_half1))))
 
-    n_classes = 1  # ??????
+    n_classes = decoder.n_classes  # ??????
 
-    points = cons_model.pos.detach().cpu()
+    points = decoder.model_positions.detach().cpu()
 
-    points = torch.tensor(points)
-    cons_model.pos = torch.nn.Parameter(points, requires_grad=False)
-    cons_model.n_points = len(points)
-    decoder.n_points = cons_model.n_points
-
-    cons_model.p2i.device = device
     decoder.p2i.device = device
-    cons_model.projector.device = device
     decoder.projector.device = device
-    cons_model.image_smoother.device = device
     decoder.image_smoother.device = device
-    cons_model.p2v.device = device
     decoder.p2v.device = device
     decoder.device = device
-    cons_model.device = device
     decoder.to(device)
-    cons_model.to(device)
 
     if mask_file:
         with mrcfile.open(mask_file) as mrc:
             mask = torch.tensor(mrc.data)
             mask = mask.movedim(0, 2).movedim(0, 1)
 
-    max_diameter_ang = box_size * \
-        optics_group['pixel_size'] - circular_mask_thickness
-
-    if particle_diameter is None:
-        diameter_ang = box_size * 1 * \
-            optics_group['pixel_size'] - circular_mask_thickness
-        print(f"Assigning a diameter of {round(diameter_ang)} angstrom")
-    else:
-        if particle_diameter > max_diameter_ang:
-            print(
-                f"WARNING: Specified particle diameter {round(particle_diameter)} angstrom is too large\n"
-                f" Assigning a diameter of {round(max_diameter_ang)} angstrom"
-            )
-            diameter_ang = max_diameter_ang
-        else:
-            diameter_ang = particle_diameter
-
-    if preload_images:
-        dataset.preload_images()
-
     if atomic_model:
         pdb_pos = pdb2points(atomic_model) / (box_size * ang_pix) - 0.5
 
-    dataset_half1 = torch.utils.data.Subset(dataset, indices)
-    data_loader_half1 = DataLoader(
-        dataset=dataset_half1,
+    dataset_half = torch.utils.data.Subset(dataset, indices)
+    dataloader_half = DataLoader(
+        dataset=dataset_half,
         batch_size=batch_size,
         num_workers=n_workers,
         shuffle=False,
         pin_memory=True)
 
-    batch = next(iter(data_loader_half1))
+    batch = next(iter(dataloader_half))
 
     data_preprocessor = ParticleImagePreprocessor()
     data_preprocessor.initialize_from_stack(
         stack=batch['image'],
-        circular_mask_radius=diameter_ang / (2 * optics_group['pixel_size']),
-        circular_mask_thickness=circular_mask_thickness / optics_group['pixel_size'])
-
-    box_size = optics_group['image_size']
-    ang_pix = optics_group['pixel_size']
+        circular_mask_radius=diameter_ang / (2 * ang_pix),
+        circular_mask_thickness=circular_mask_thickness / ang_pix)
 
     pixel_distance = 1 / box_size
 
@@ -179,25 +144,25 @@ def explore_latent_space(
 
     '-----------------------------------------------------------------------------'
     'Coloring by pose and shift'
-    ccp = poses.orientations[indices]
-    ccp = F.normalize(ccp, dim=1)
-    ccp = ccp.detach().cpu().numpy()
-    ccp = ccp / 2 + 0.5
-    ccp = ccp[:, 2]
+    color_euler_angles = poses.orientations[indices]
+    color_euler_angles = F.normalize(color_euler_angles, dim=1)
+    color_euler_angles = color_euler_angles.detach().cpu().numpy()
+    color_euler_angles = color_euler_angles / 2 + 0.5
+    color_euler_angles = color_euler_angles[:, 2]
 
-    cct = poses.translations[indices]
-    cct = torch.linalg.norm(cct, dim=1)
-    cct = cct.detach().cpu().numpy()
-    cct = cct - np.min(cct)
-    cct /= np.max(cct)
+    color_shifts = poses.translations[indices]
+    color_shifts = torch.linalg.norm(color_shifts, dim=1)
+    color_shifts = color_shifts.detach().cpu().numpy()
+    color_shifts = color_shifts - np.min(color_shifts)
+    color_shifts /= np.max(color_shifts)
 
     '-----------------------------------------------------------------------------'
-    'Evaluate model on the halfset'
+    'Evaluate model on the half-set'
 
-    globaldis = torch.zeros(cons_model.pos.shape[0]).to(device)
+    global_distances = torch.zeros(decoder.model_positions.shape[0]).to(device)
 
     with torch.no_grad():
-        for batch_ndx, sample in enumerate(tqdm(data_loader_half1)):
+        for batch_ndx, sample in enumerate(tqdm(dataloader_half)):
             r, y, ctf = sample["rotation"], sample["image"], sample["ctf"]
             idx = sample['idx']
             r, t = poses(idx)
@@ -208,30 +173,33 @@ def explore_latent_space(
             y, r, ctf, t = y.to(device), r.to(
                 device), ctf.to(device), t.to(device)
             mu, _ = encoder(y, ctf)
-            mu_in = [mu]
-            _, _, _, _, dis = decoder(mu_in, r, cons_model.pos.to(device), cons_model.amp.to(device),
-                                      cons_model.ampvar.to(device), t)
-            d = torch.linalg.vector_norm(dis, dim=-1)
-            dd = torch.mean(d, 0)
-            globaldis += dd
-            cons = torch.stack(d.shape[0] * [cons_model.pos], 0)
-            dps = torch.sum(d > 2 * pixel_distance, 1)
+            _, _, displacements = decoder(mu, r, t)
+            displacement_norm = torch.linalg.vector_norm(displacements, dim=-1)
+            mean_displacement_norm = torch.mean(displacement_norm, 0)
+            global_distances += mean_displacement_norm
+            cons = torch.stack(
+                displacement_norm.shape[0] * [decoder.model_positions], 0)
+            amount_of_large_displacements = torch.sum(
+                displacement_norm > 2 * pixel_distance, 1)
+
             if batch_ndx == 0:
                 z = mu
-                c1 = torch.sum(d > pixel_distance, 1)
-                c2 = torch.sum(d, 1)
-                c3 = torch.mean(dis.movedim(2, 0) * (d > pixel_distance), -1)
+                c1 = torch.sum(displacement_norm > pixel_distance, 1)
+                c2 = torch.sum(displacement_norm, 1)  # for mean direction
+                c3 = torch.mean(displacements.movedim(2, 0) *
+                                (displacement_norm > pixel_distance), -1)
                 c4 = torch.sum(cons.movedim(2, 0) *
-                               ((d > 2 * pixel_distance) * d), 2) / dps[None, :]
+                               ((displacement_norm > 2 * pixel_distance) * displacement_norm), 2) / amount_of_large_displacements[None, :]
 
             else:
                 z = torch.cat([z, mu])
-                c1 = torch.cat([c1, torch.sum(d > pixel_distance, 1)])
-                c2 = torch.cat([c2, torch.sum(d, 1)])
+                c1 = torch.cat(
+                    [c1, torch.sum(displacement_norm > pixel_distance, 1)])
+                c2 = torch.cat([c2, torch.sum(displacement_norm, 1)])
                 c3 = torch.cat(
-                    [c3, torch.mean(dis.movedim(2, 0) * (d > pixel_distance), -1)], 1)
+                    [c3, torch.mean(displacements.movedim(2, 0) * (displacement_norm > pixel_distance), -1)], 1)
                 c4 = torch.cat([c4,
-                                torch.sum(cons.movedim(2, 0) * ((d > 2 * pixel_distance) * d), 2) / dps[
+                                torch.sum(cons.movedim(2, 0) * ((displacement_norm > 2 * pixel_distance) * displacement_norm), 2) / amount_of_large_displacements[
                                     None:]],
                                1)
 
@@ -243,7 +211,7 @@ def explore_latent_space(
     closest_idx = torch.argmin(c2)
 
     z_lat = z[:, :latent_dim]
-    dd = globaldis / torch.max(globaldis)
+    dd = global_distances / torch.max(global_distances)
     dd = dd.cpu().numpy()
 
     if z.shape[1] > 2:
@@ -275,7 +243,7 @@ def explore_latent_space(
     cc5 = cc5 - np.min(cc5)
     cc5 = cc5 / np.max(cc5)
 
-    cons0 = cons_model.pos.detach().cpu().numpy()
+    cons0 = decoder.model_positions.detach().cpu().numpy()
     c_cons = cons0 / (2 * np.max(np.abs(cons0))) + 0.5
 
     latent = zz * 100
@@ -286,38 +254,35 @@ def explore_latent_space(
 
     r = torch.zeros([2, 3])
     t = torch.zeros([2, 2])
-    cons_volume = cons_model.generate_volume(r.to(device), t.to(device))
+    cons_volume = decoder.generate_consensus_volume()
     cons_volume = cons_volume[0].detach().cpu().numpy()
 
-    nap_cons_pos = (0.5 + cons_model.pos.detach().cpu()) * box_size
+    nap_cons_pos = (0.5 + decoder.model_positions.detach().cpu()) * box_size
     nap_zeros = torch.zeros(nap_cons_pos.shape[0])
     nap_cons_pos = torch.cat([nap_zeros.unsqueeze(1), nap_cons_pos], 1)
     nap_cons_pos = torch.stack(
         [nap_cons_pos[:, 0], nap_cons_pos[:, 3], nap_cons_pos[:, 2], nap_cons_pos[:, 1]], 1)
 
     with torch.no_grad():
-        V0 = decoder.generate_volume([torch.zeros(2, latent_dim).to(device)], r.to(device),
-                                     cons_model.pos.to(
-                                device), cons_model.amp.to(device),
-                                     cons_model.ampvar.to(device), t.to(device)).float()
+        V0 = decoder.generate_volume(torch.zeros(2, latent_dim).to(
+            device), r.to(device), t.to(device)).float()
 
-    amps = cons_model.amp.detach().cpu()
+    amps = decoder.amp.detach().cpu()
     amps = amps[0]
     amps -= torch.min(amps)
     amps /= torch.max(amps)
 
-    lat_colors = {'amount': cc1, 'direction': cc3, 'location': cc5, 'index': indices, 'pose': ccp,
-                  'shift': cct}
+    lat_colors = {'amount': cc1, 'direction': cc3, 'location': cc5, 'index': indices, 'pose': color_euler_angles,
+                  'shift': color_shifts}
 
     class Visualizer:
-        def __init__(self, z, latent, decoder, cons_model, V0, cons_volume, nap_cons_pos, dd, amps,
+        def __init__(self, z, latent, decoder, V0, cons_volume, nap_cons_pos, dd, amps,
                      lat_cols, starfile, indices, latent_closest):
             self.z = z
             self.latent = latent
             self.vol_viewer = napari.Viewer(ndisplay=3)
             self.star = starfile
             self.decoder = decoder
-            self.cons_model = cons_model
             self.cons_volume = cons_volume / np.max(cons_volume)
             self.V0 = (V0[0] / torch.max(V0)).cpu().numpy()
             self.vol_layer = self.vol_viewer.add_image(self.V0, rendering='iso', colormap='gray',
@@ -325,7 +290,7 @@ def explore_latent_space(
             self.cons_layer = self.vol_viewer.add_image(self.cons_volume, rendering='iso',
                                                         colormap='gray', iso_threshold=0.15)
             self.point_properties = {'activity': dd, 'amplitude': amps,
-                                     'width': torch.nn.functional.softmax(cons_model.ampvar, 0)[
+                                     'width': torch.nn.functional.softmax(decoder.ampvar, 0)[
                                          0].detach().cpu()}
             self.nap_cons_pos = nap_cons_pos
             self.nap_zeros = torch.zeros(nap_cons_pos.shape[0])
@@ -540,22 +505,13 @@ def explore_latent_space(
             lat = torch.stack(2 * [torch.tensor(lat_coord)], 0)
 
             if self.rep_menu.current_choice == 'volume':
-                vol = self.decoder.generate_volume([lat.to(device)], self.r.to(device),
-                                                   self.cons_model.pos.to(device),
-                                                   self.cons_model.amp.to(device),
-                                                   self.cons_model.ampvar.to(device), self.t.to(device)).float()
+                vol = self.decoder.generate_volume(
+                    lat.to(device), self.r.to(device), self.t.to(device)).float()
                 self.vol_layer.data = (
                     vol[0] / torch.max(vol[0])).detach().cpu().numpy()
             elif self.rep_menu.current_choice == 'points':
-                proj, proj_im, proj_pos, pos, dis = self.decoder.forward([lat.to(device)],
-                                                                         self.r.to(
-                    device),
-                    self.cons_model.pos.to(
-                    device),
-                    self.cons_model.amp.to(
-                    device),
-                    self.cons_model.ampvar.to(
-                    device), self.t.to(device))
+                proj, proj_im, proj_pos, pos, dis = self.decoder.forward(
+                    lat.to(device), self.r.to(device), self.t.to(device))
                 p = torch.cat([self.nap_zeros.unsqueeze(1), (0.5 + pos[0].detach().cpu()) * box_size],
                               1)
                 self.point_layer.data = torch.stack(
@@ -585,26 +541,11 @@ def explore_latent_space(
                 for i in tqdm(range(path.shape[0] // 2)):
                     mu = path[i:i + 2].float()
                     with torch.no_grad():
-                        V = self.decoder.generate_volume([mu.to(device)], self.r.to(device),
-                                                         self.cons_model.pos.to(device),
-                                                         self.cons_model.amp.to(device),
-                                                         self.cons_model.ampvar.to(device), self.t.to(device))
+                        V = self.decoder.generate_volume(
+                            mu.to(device), self.r.to(device), self.t.to(device))
                         if atomic_model != None:
-                            proj, proj_im, proj_pos, pos, dis = self.decoder.forward([mu.to(device)],
-                                                                                     self.r.to(
-                                device),
-                                pdb_pos.to(
-                                device),
-                                torch.ones(
-                                pdb_pos.shape[
-                                    0]).to(
-                                device),
-                                torch.ones(
-                                n_classes,
-                                pdb_pos.shape[
-                                    0]).to(
-                                device),
-                                self.t.to(device))
+                            proj, pos, dis = self.decoder.forward(
+                                mu.to(device), self.r.to(device), self.t.to(device))
                             # c_pos = inv_half1([mu.to(device)],pos)
                             # points2pdb(args.pdb_series,args.out_dir+'/backwardstate'+ str(i).zfill(3)+'.pdb',c_pos[0]*ang_pix*box_size)
                             # points2pdb(args.pdb_series,args.out_dir+'/forward_state'+ str(i).zfill(3)+'.cif',pos[0]*ang_pix*box_size)
@@ -620,16 +561,8 @@ def explore_latent_space(
                     mu = path[i:i + 2].float()
                     print(i)
                     with torch.no_grad():
-                        proj, proj_im, proj_pos, pos, dis = self.decoder.forward([mu.to(device)],
-                                                                                 self.r.to(
-                            device),
-                            self.cons_model.pos.to(
-                            device),
-                            self.cons_model.amp.to(
-                            device),
-                            self.cons_model.ampvar.to(
-                            device),
-                            self.t.to(device))
+                        proj,  pos, dis = self.decoder.forward(
+                            mu.to(device), self.r.to(device), self.t.to(device))
                         poss.append(torch.cat([i * torch.ones(pos.shape[1]).unsqueeze(1).to(device),
                                                (0.5 + pos[0]) * box_size], 1))
                         poss.append(torch.cat(
@@ -672,7 +605,7 @@ def explore_latent_space(
             self.poly = PolygonSelector(ax=self.axes1, onselect=self.save_starfile, props=self.line,
                                         useblit=True)
 
-    vis = Visualizer(zz, z_lat, decoder, cons_model, V0, cons_volume, nap_cons_pos, dd, amps,
+    vis = Visualizer(zz, z_lat, decoder, V0, cons_volume, nap_cons_pos, dd, amps,
                      lat_colors, dataframe, indices, latent_closest)
 
     vis.run()

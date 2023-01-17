@@ -78,6 +78,7 @@ class DisplacementDecoder(torch.nn.Module):
         self.image_smoother = FourierImageSmoother(
             self.box_size, device, n_classes, grid_oversampling_factor
         )
+        self.p2v = PointsToVolumes(box_size, n_classes)
 
         # parameter initialisation
         self.output[-1].weight.data.fill_(0.0)
@@ -300,7 +301,7 @@ class DisplacementDecoder(torch.nn.Module):
             torch.fft.ifftn(torch.sum(Filts * volume, 1), dim=[-3, -2, -1]))
         return volume
 
-    def generate_volume(self, z, r, cons, amp, ampvar, shift):
+    def generate_volume(self, z, r, shift):
         # controls how points are rendered as volumes
         if self.box_size > 360:
             vol_box = self.box_size // 2
@@ -308,12 +309,11 @@ class DisplacementDecoder(torch.nn.Module):
             vol_box = self.box_size
         p2v = PointsToVolumes(vol_box, self.n_classes)
         bs = z[0].shape[0]
-        _, pos, _ = self.forward(z, r, cons, amp, ampvar, shift)
+        _, pos, _ = self.forward(z, r, shift)
         V = p2v(pos,
                 torch.stack(
-                    bs * [torch.nn.functional.softmax(ampvar, dim=0)],
-                    0) * torch.clip(
-                    amp, min=1).to(self.device))
+                    bs * [torch.nn.functional.softmax(self.ampvar, dim=0)],
+                    0) * self.amp).to(self.device)
         V = torch.fft.fftn(V, dim=[-3, -2, -1])
         R, M = radial_index_mask3(self.vol_box)
         R = torch.stack(self.image_smoother.n_classes * [R.to(self.device)], 0)
