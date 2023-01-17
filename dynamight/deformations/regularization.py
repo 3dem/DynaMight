@@ -195,7 +195,7 @@ def _compute_geometry_norm(
                     if p.requires_grad == True:
                         param_norm = p.grad.detach().data.norm(2)
                         total_norm += param_norm.item() ** 2
-                    geometry_norm += total_norm ** 0.5
+                geometry_norm += total_norm ** 0.5
             except:
                 geometry_norm = 1
     return geometry_norm

@@ -600,8 +600,8 @@ def optimize_deformations(
             decoder_half1.compute_neighbour_graph()
             decoder_half2.compute_neighbour_graph()
 
-            N_graph_h1 = decoder_half1.neighbour_graph.shape[1]
-            N_graph_h2 = decoder_half2.neighbour_graph.shape[1]
+            N_graph_h1 = decoder_half1.radius_graph.shape[1]
+            N_graph_h2 = decoder_half2.radius_graph.shape[1]
 
             print('mean distance in graph in Angstrom in half 1:',
                   decoder_half1.mean_neighbour_distance.item(), ' Angstrom')
