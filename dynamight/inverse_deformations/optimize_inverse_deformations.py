@@ -30,36 +30,35 @@ def optimize_inverse_deformations(
     data_loader_threads: int = Option(4),
 ):
 
-    os.mkdir(str(output_directory)+'/bwd_deformations')
-    circular_mask_thickness = mask_soft_edge_width
-    batch_size = batch_size
-
+    backward_deformations_directory = output_directory / 'bwd_deformations'
+    backward_deformations_directory.mkdir(exist_ok=True, parents=True)
+    forward_deformations_directory = output_directory / 'forward_deformations'
+    if not forward_deformations_directory.exists():
+        raise NotADirectoryError(f'{forward_deformations_directory} does not exist.')
     device = 'cuda:' + str(gpu_id)
-    if vae_checkpoint == None:
-        vae_checkpoint = str(output_directory) + \
-            '/fwd_deformations/checkpoint_final.pth'
-    cp = torch.load(vae_checkpoint, map_location=device)
+    if vae_checkpoint is None:
+        vae_checkpoint = forward_deformations_directory / 'checkpoint_final.pth'
+
+    checkpoint = torch.load(vae_checkpoint, map_location=device)
 
     if refinement_star_file == None:
-        refinement_star_file = cp['refinement_directory']
+        refinement_star_file = checkpoint['refinement_directory']
 
-    encoder_half1 = cp['encoder_half1']
-    encoder_half2 = cp['encoder_half2']
-    cons_model = cp['consensus']
-    decoder_half1 = cp['decoder_half1']
-    decoder_half2 = cp['decoder_half2']
-    poses = cp['poses']
+    encoder_half1 = checkpoint['encoder_half1']
+    encoder_half2 = checkpoint['encoder_half2']
+    decoder_half1 = checkpoint['decoder_half1']
+    decoder_half2 = checkpoint['decoder_half2']
+    poses = checkpoint['poses']
 
-    encoder_half1.load_state_dict(cp['encoder_half1_state_dict'])
-    encoder_half2.load_state_dict(cp['encoder_half2_state_dict'])
-    cons_model.load_state_dict(cp['consensus_state_dict'])
-    decoder_half1.load_state_dict(cp['decoder_half1_state_dict'])
-    decoder_half2.load_state_dict(cp['decoder_half2_state_dict'])
+    encoder_half1.load_state_dict(checkpoint['encoder_half1_state_dict'])
+    encoder_half2.load_state_dict(checkpoint['encoder_half2_state_dict'])
+    decoder_half1.load_state_dict(checkpoint['decoder_half1_state_dict'])
+    decoder_half2.load_state_dict(checkpoint['decoder_half2_state_dict'])
 
-    n_classes = 2
-    N_points = cons_model.n_points
+    n_classes = decoder_half1.n_classes
+    n_points = decoder_half1.n_points
 
-    points = cons_model.pos.detach().cpu()
+    points = decoder_half1.model_positions.detach().cpu()
     points = torch.tensor(points)
     cons_model.pos = torch.nn.Parameter(points, requires_grad=False)
     cons_model.n_points = len(points)
@@ -94,15 +93,15 @@ def optimize_inverse_deformations(
     latent_dim = encoder_half1.latent_dim
 
     dataset, diameter_ang, box_size, ang_pix, optics_group = initialize_dataset(
-        refinement_star_file, circular_mask_thickness, preload_images,
+        refinement_star_file, mask_soft_edge_width, preload_images,
         particle_diameter)
 
     max_diameter_ang = box_size * optics_group[
-        'pixel_size'] - circular_mask_thickness
+        'pixel_size'] - mask_soft_edge_width
 
     if particle_diameter is None:
         diameter_ang = box_size * 1 * optics_group[
-            'pixel_size'] - circular_mask_thickness
+            'pixel_size'] - mask_soft_edge_width
         print(f"Assigning a diameter of {round(diameter_ang)} angstrom")
     else:
         if particle_diameter > max_diameter_ang:
@@ -117,7 +116,7 @@ def optimize_inverse_deformations(
     if preload_images:
         dataset.preload_images()
 
-    inds_half1 = cp['indices_half1'].cpu().numpy()
+    inds_half1 = checkpoint['indices_half1'].cpu().numpy()
     inds_half2 = list(set(range(len(dataset))) - set(list(inds_half1)))
     print(len(inds_half1))
     print(len(inds_half2))
@@ -144,16 +143,16 @@ def optimize_inverse_deformations(
     data_preprocessor.initialize_from_stack(
         stack=batch["image"],
         circular_mask_radius=diameter_ang / (2 * optics_group['pixel_size']),
-        circular_mask_thickness=circular_mask_thickness / optics_group[
+        circular_mask_thickness=mask_soft_edge_width / optics_group[
             'pixel_size']
     )
 
     box_size = optics_group['image_size']
     ang_pix = optics_group['pixel_size']
 
-    inv_half1 = InverseDisplacementDecoder(device, latent_dim, N_points, 6, 96,
+    inv_half1 = InverseDisplacementDecoder(device, latent_dim, n_points, 6, 96,
                                            LinearBlock, 6, box_size).to(device)
-    inv_half2 = InverseDisplacementDecoder(device, latent_dim, N_points, 6, 96,
+    inv_half2 = InverseDisplacementDecoder(device, latent_dim, n_points, 6, 96,
                                            LinearBlock, 6, box_size).to(device)
     inv_half1_params = inv_half1.parameters()
     inv_half2_params = inv_half2.parameters()
@@ -168,7 +167,7 @@ def optimize_inverse_deformations(
 
     losslist = torch.zeros(N_inv, 2)
 
-    inds_half1 = cp['indices_half1'].cpu().numpy()
+    inds_half1 = checkpoint['indices_half1'].cpu().numpy()
     inds_half2 = list(set(range(len(dataset))) - set(list(inds_half1)))
     dataset_half1 = torch.utils.data.Subset(dataset, inds_half1)
     dataset_half2 = torch.utils.data.Subset(dataset, inds_half2)
@@ -189,7 +188,7 @@ def optimize_inverse_deformations(
     )
 
     mu_in_tot = torch.zeros(len(dataset), latent_dim)
-    pos_tot = torch.zeros(len(dataset), N_points, 3)
+    pos_tot = torch.zeros(len(dataset), n_points, 3)
 
     for epochs in range(N_inv):
         print('Inversion loss for half 1 at iteration', epochs, inv_loss_h1)
