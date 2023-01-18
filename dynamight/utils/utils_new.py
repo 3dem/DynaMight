@@ -58,7 +58,8 @@ def fourier_loss(x, y, ctf, W=None, sig=None):
         y = torch.multiply(y, W)
     # else:
     #     x = torch.multiply(x,ctf)
-    l = torch.mean(torch.pow(torch.mean(torch.abs(x - y) ** 2, dim=[-1, -2]), 0.5))
+    l = torch.mean(torch.pow(torch.mean(
+        torch.abs(x - y) ** 2, dim=[-1, -2]), 0.5))
     return l
 
 
@@ -213,11 +214,12 @@ class FourierImageSmoother(nn.Module):
         self.box_size = box_size
         self.device = device
         self.n_classes = n_classes
-        self.rad_inds, self.rad_mask = radial_index_mask(oversampling * box_size)
+        self.rad_inds, self.rad_mask = radial_index_mask(
+            oversampling * box_size)
         if A == None and B == None:
             self.B = torch.nn.Parameter(torch.linspace(
                 0.0005 * box_size, 0.001 * box_size, n_classes).to(device),
-                                        requires_grad=True)
+                requires_grad=True)
             self.A = torch.nn.Parameter(torch.linspace(
                 0.1, 0.2, n_classes).to(device), requires_grad=True)
         else:
@@ -228,7 +230,8 @@ class FourierImageSmoother(nn.Module):
 
     def forward(self, ims):
         R = torch.stack(self.n_classes * [self.rad_inds.to(self.device)], 0)
-        FF = torch.exp(-self.B[:, None, None] ** 2 * R) * self.A[:, None, None] ** 2
+        FF = torch.exp(-self.B[:, None, None] ** 2 *
+                       R) * self.A[:, None, None] ** 2
         bs = ims.shape[0]
         Filts = torch.stack(bs * [FF], 0)
         Filts = torch.fft.ifftshift(Filts, dim=[-2, -1])
@@ -247,7 +250,7 @@ def fourier_crop(img, oversampling):
     s = img.shape[-1]
     img = torch.fft.fftshift(img, [-1, -2])
     out = img[..., s // 2 - s // (2 * oversampling):s // 2 + s // (2 * oversampling),
-          s // 2 - s // (2 * oversampling):s // 2 + s // (2 * oversampling)]
+              s // 2 - s // (2 * oversampling):s // 2 + s // (2 * oversampling)]
     out = torch.fft.fftshift(out, [-1, -2])
     return out
 
@@ -365,7 +368,7 @@ class PointsToVolumes(nn.Module):
                     if self.batch_size > 1:
                         valid = ((0 <= x_) * (x_ < self.box_size) * (0 <= y_) * (y_ <
                                                                                  self.box_size) * (
-                                         0 <= z_) * (z_ < self.box_size)).long()
+                            0 <= z_) * (z_ < self.box_size)).long()
                         idx = (((z_ * self.box_size + y_) *
                                 self.box_size + x_) * valid).squeeze()
                         idx = torch.stack(self.n_classes * [idx], 1)
@@ -374,7 +377,7 @@ class PointsToVolumes(nn.Module):
                     else:
                         valid = ((0 <= x_) * (x_ < self.box_size) * (0 <= y_) * (y_ <
                                                                                  self.box_size) * (
-                                         0 <= z_) * (z_ < self.box_size)).long()
+                            0 <= z_) * (z_ < self.box_size)).long()
                         idx = (((z_ * self.box_size + y_) *
                                 self.box_size + x_) * valid).squeeze(2)
                         idx = torch.stack(self.n_classes * [idx], 1)
@@ -408,7 +411,8 @@ def frc(x, y, ctf, batch_reduce='sum'):
     # den = torch.pow(scatter(torch.abs(x.flatten(start_dim=-2))**2, R.flatten(start_dim=-2), reduce='mean')
     #                * scatter(torch.abs(y.flatten(start_dim=-2))**2, R.flatten(start_dim=-2), reduce='mean'), 0.5)
     den = torch.pow(
-        scatter_mean(torch.abs(x.flatten(start_dim=-2)) ** 2, R.flatten(start_dim=-2))
+        scatter_mean(torch.abs(x.flatten(start_dim=-2))
+                     ** 2, R.flatten(start_dim=-2))
         * scatter_mean(torch.abs(y.flatten(start_dim=-2)) ** 2,
                        R.flatten(start_dim=-2)), 0.5)
     FRC = num / (den + eps)
@@ -596,7 +600,8 @@ def graphs2bild(total_points, points, edge_indices, amps, title, box_size, ang_p
             print(y.shape)
             for k in range(y.shape[0]):
                 f.write("%s %.18g %.18g %.18g %.18g %.18g %.18g %.18g\n" % (
-                    '.cylinder', y[k, 0], y[k, 1], y[k, 2], y[k, 3], y[k, 4], y[k, 5],
+                    '.cylinder', y[k, 0], y[k, 1], y[k,
+                        2], y[k, 3], y[k, 4], y[k, 5],
                     0.12))
         for k in range(points.shape[0]):
             f.write("%s %.18g %.18g %.18g %.18g\n" % (
@@ -640,7 +645,8 @@ def points2bild(points, amps, title, box_size, ang_pix):
 
 def series2xyz(points, title, box_size, ang_pix):
     if type(points).__module__ == 'torch':
-        points = box_size * ang_pix * (0.5 + points.detach().data.cpu().numpy())
+        points = box_size * ang_pix * \
+            (0.5 + points.detach().data.cpu().numpy())
     atomtype = ("C",)
     for i in range(points.shape[0]):
         print(i)
@@ -714,7 +720,8 @@ def RadialAvg(F1, batch_reduce=None):
     ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
     end_ind = torch.round(torch.tensor(N / 2)).long()
     X, Y, Z = torch.meshgrid(ind, ind, ind)
-    R = torch.fft.fftshift(torch.round(torch.pow(X ** 2 + Y ** 2 + Z ** 2, 0.5)).long())
+    R = torch.fft.fftshift(torch.round(
+        torch.pow(X ** 2 + Y ** 2 + Z ** 2, 0.5)).long())
     res = torch.arange(start=0, end=end_ind) ** 2,
 
     if len(F1.shape) == 3:
@@ -764,8 +771,8 @@ def fourier_shift_2d(
         x = x.to(grid_ft.device)
         y = y.to(grid_ft.device)
         dot_prod = 2 * np.pi * \
-                   (x[None, :, :] * xshift[:, None, None] +
-                    y[None, :, :] * yshift[:, None, None])
+            (x[None, :, :] * xshift[:, None, None] +
+             y[None, :, :] * yshift[:, None, None])
         dot_prod = torch.fft.fftshift(dot_prod, dim=[-1, -2])
         a = torch.cos(dot_prod)
         b = torch.sin(dot_prod)
@@ -773,8 +780,8 @@ def fourier_shift_2d(
         ls = np.linspace(-s // 2, s // 2 - 1, s),
         y, x = np.meshgrid(ls, ls, indexing="ij")
         dot_prod = 2 * np.pi * \
-                   (x[None, :, :] * xshift[:, None, None] +
-                    y[None, :, :] * yshift[:, None, None])
+            (x[None, :, :] * xshift[:, None, None] +
+             y[None, :, :] * yshift[:, None, None])
         dot_prod = torch.fft.fftshift(dot_prod, dim=[-1, -2])
         a = np.cos(dot_prod)
         b = np.sin(dot_prod)
@@ -800,7 +807,8 @@ def PowerSpec(F1, batch_reduce=None):
     ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
     end_ind = torch.round(torch.tensor(N / 2)).long()
     X, Y, Z = torch.meshgrid(ind, ind, ind)
-    R = torch.fft.fftshift(torch.round(torch.pow(X ** 2 + Y ** 2 + Z ** 2, 0.5)).long())
+    R = torch.fft.fftshift(torch.round(
+        torch.pow(X ** 2 + Y ** 2 + Z ** 2, 0.5)).long())
     res = torch.arange(start=0, end=end_ind) ** 2,
 
     if len(F1.shape) == 3:
@@ -839,7 +847,8 @@ def FSC(F1, F2, ang_pix=1, visualize=False):
         num.scatter_add_(0, R.flatten(), torch.real(
             F1 * torch.conj(F2)).flatten())
         den = torch.pow(
-            den1.scatter_add_(0, R.flatten(), torch.abs(F1.flatten(start_dim=-3)) ** 2)
+            den1.scatter_add_(0, R.flatten(), torch.abs(
+                F1.flatten(start_dim=-3)) ** 2)
             * den2.scatter_add_(0, R.flatten(),
                                 torch.abs(F2.flatten(start_dim=-3)) ** 2), 0.5)
         FSC = num / den
@@ -850,7 +859,8 @@ def FSC(F1, F2, ang_pix=1, visualize=False):
         plt.rcParams['axes.xmargin'] = 0
         plt.plot(FSC[:end_ind].cpu(), c='r')
         plt.plot(torch.ones(end_ind) * 0.5, c='black', linestyle='dashed')
-        plt.plot(torch.ones(end_ind) * 0.143, c='slategrey', linestyle='dotted')
+        plt.plot(torch.ones(end_ind) * 0.143,
+                 c='slategrey', linestyle='dotted')
         plt.xticks(torch.arange(start=0, end=end_ind, step=10), labels=np.round(
             res[torch.arange(start=0, end=end_ind, step=10)].numpy(), 1))
         plt.show()
@@ -1255,7 +1265,7 @@ def bezier_curve(points, nTimes=1000):
 def make_equidistant(x, y, N):
     N_p = x.shape[0]
     points = np.stack([x, y], 1)
-    dp = points[1:] - points[:-1, :]
+    dp = points[:-1] - points[1:, :]
     n_points = []
     dists = np.linalg.norm(dp, axis=1)
     min_dist = np.min(dists)
@@ -1269,8 +1279,6 @@ def make_equidistant(x, y, N):
             n_points.append(points[i] + j * min_dist *
                             (dp[i] / np.linalg.norm(dp[i])))
     n_points = np.array(n_points)
-    plt.scatter(n_points[:, 0], n_points[:, 1])
-    plt.show()
     frac = np.maximum(int(np.round(n_points.shape[0] / N)), 1)
     return n_points[::frac, :], points
 

@@ -488,8 +488,6 @@ def optimize_deformations(
             mode=initialization_mode,
         )
 
-        print(idix_half1)
-
         latent_space, losses_half2, displacement_statistics_half2, idix_half2, visualization_data_half2 = train_epoch(
             encoder_half2,
             enc_half2_optimizer,
@@ -510,8 +508,6 @@ def optimize_deformations(
             mode=initialization_mode,
         )
 
-        print(idix_half2)
-
         angles_op.step()
         shifts_op.step()
 
@@ -526,7 +522,6 @@ def optimize_deformations(
             current_angles), torch.tensor(current_shifts))
 
         # update consensus model
-        # todo: simplify update_consensus_model
         if epoch > (n_warmup_epochs - 1) and consensus_update_rate != 0:
 
             new_pos_h1 = update_model_positions(particle_dataset, data_preprocessor, encoder_half1,
@@ -550,7 +545,7 @@ def optimize_deformations(
                 old_loss_half2 = losses_half2['reconstruction_loss']
                 nosub_ind_h2 = 0
 
-            if losses_half1['reconstruction_loss'] > old_loss_half1:
+            if losses_half1['reconstruction_loss'] > old_loss_half1 and consensus_update_rate_h1 != 0:
                 nosub_ind_h1 += 1
                 print('No consensus updates for ',
                       nosub_ind_h1, ' epochs on half-set 1')
@@ -562,7 +557,8 @@ def optimize_deformations(
                     reset_all_linear_layer_weights(encoder_half1)
                     regularization_factor_h1 = 1
                     initialization_mode = ConsensusInitializationMode.MAP
-            if losses_half2['reconstruction_loss'] > old_loss_half2:
+
+            if losses_half2['reconstruction_loss'] > old_loss_half2 and consensus_update_rate_h2 != 0:
                 nosub_ind_h2 += 1
                 print('No consensus updates for ',
                       nosub_ind_h2, ' epochs on half-set 2')

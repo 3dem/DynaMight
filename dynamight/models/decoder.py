@@ -308,7 +308,7 @@ class DisplacementDecoder(torch.nn.Module):
         else:
             vol_box = self.box_size
         p2v = PointsToVolumes(vol_box, self.n_classes)
-        bs = z[0].shape[0]
+        bs = z.shape[0]
         _, pos, _ = self.forward(z, r, shift)
         V = p2v(pos,
                 torch.stack(
