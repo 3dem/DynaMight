@@ -1,4 +1,3 @@
-
 from pathlib import Path
 from typing import Optional
 import torch
@@ -8,9 +7,9 @@ from ..data.handlers.particle_image_preprocessor import ParticleImagePreprocesso
 from ..data.dataloaders.relion import RelionDataset
 from torch.utils.data import DataLoader
 from ..utils.utils_new import pdb2points
-from .utils import compute_dimensionality_reduction, compute_latent_space_and_colors, Visualizer
+from .utils import compute_dimensionality_reduction, compute_latent_space_and_colors
+from .visualizer import Visualizer
 import starfile
-from typer import Option
 from .._cli import cli
 
 
@@ -24,23 +23,20 @@ def explore_latent_space(
     particle_diameter: Optional[float] = None,
     soft_edge_width: float = 20,
     batch_size: int = 100,
-    gpu_id: int = 0,
+    gpu_id: Optional[int] = None,
     preload_images: bool = True,
     n_workers: int = 8,
     dimensionality_reduction_method: str = 'PCA',
     inverse_deformation: Optional[str] = None,
     atomic_model: str = None,
 ):
-
-    device = "cpu" if gpu_id == "-1" else 'cuda:' + str(gpu_id)
-
-    '-----------------------------------------------------------------------------'
-    'load and prepare models for inference'
-    if checkpoint_file == None:
-        checkpoint_file = str(output_directory) + \
-            '/forward_deformations/checkpoint_final.pth'
+    # todo: @schwab implement preload images
+    # load and prepare models for inference
+    device = "cpu" if gpu_id is None else 'cuda:' + str(gpu_id)
+    if checkpoint_file is None:
+        checkpoint_file = output_directory / 'forward_deformations/checkpoint_final.pth'
     cp = torch.load(checkpoint_file, map_location=device)
-    if inverse_deformation != None:
+    if inverse_deformation is not None:
         cp_inv = torch.load(inverse_deformation, map_location=device)
         inv_half1 = cp_inv['inv_half1']
         inv_half2 = cp_inv['inv_half2']
@@ -103,7 +99,8 @@ def explore_latent_space(
         batch_size=batch_size,
         num_workers=n_workers,
         shuffle=False,
-        pin_memory=True)
+        pin_memory=True
+    )
 
     batch = next(iter(dataloader_half))
 
@@ -116,7 +113,8 @@ def explore_latent_space(
     latent_dim = decoder.latent_dim
 
     latent_space, latent_colors, point_colors = compute_latent_space_and_colors(
-        encoder, decoder, dataloader_half, poses, data_preprocessor, indices)
+        encoder, decoder, dataloader_half, poses, data_preprocessor, indices
+    )
     if latent_space.shape[1] > 2:
         print('Computing dimensionality reduction')
         embedded_latent_space = compute_dimensionality_reduction(
@@ -143,7 +141,19 @@ def explore_latent_space(
         V0 = decoder.generate_volume(torch.zeros(2, latent_dim).to(
             device), r.to(device), t.to(device)).float()
 
-    vis = Visualizer(embedded_latent_space, latent_space, decoder, V0, cons_volume, nap_cons_pos, point_colors,
-                     latent_colors, dataframe, indices, latent_closest, half_set, output_directory)
-
+    vis = Visualizer(
+        embedded_latent_space,
+        latent_space,
+        decoder,
+        V0,
+        cons_volume,
+        nap_cons_pos,
+        point_colors,
+        latent_colors,
+        dataframe,
+        indices,
+        latent_closest,
+        half_set,
+        output_directory
+    )
     vis.run()
