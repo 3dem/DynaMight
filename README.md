@@ -7,3 +7,5 @@
 [![codecov](https://codecov.io/gh/schwabjohannes/dynamight/branch/main/graph/badge.svg)](https://codecov.io/gh/schwabjohannes/dynamight)
 
 Estimating dynamics from cryo-EM images and use them to improve your map (maybe)
+
+![](https://github.com/schwabjohannes/DynaMight/blob/main/motion.gif)
