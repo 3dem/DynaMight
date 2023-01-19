@@ -181,8 +181,8 @@ class DisplacementDecoder(torch.nn.Module):
             amp = self.amp
             ampvar = self.ampvar
         else:
-            amp = torch.tensor([1.0])
-            ampvar = torch.tensor([1.0])
+            amp = torch.tensor([1.0]).to(self.device)
+            ampvar = torch.tensor([1.0]).to(self.device)
 
         self.batch_size = z.shape[0]
 
@@ -226,11 +226,6 @@ class DisplacementDecoder(torch.nn.Module):
             loss.backward()
             optimizer.step()
         print('Final error:', loss.item())
-        with mrcfile.new(
-                '/cephfs/schwab/dynamight_test4/ini_volume.mrc', overwrite=True) as mrc:
-            mrc.set_data(
-                V[0].cpu().float().detach().numpy())
-            mrc.voxel_size = self.ang_pix
 
     def compute_neighbour_graph(self):
         positions_ang = self.model_positions * self.box_size * self.ang_pix
@@ -363,7 +358,7 @@ class InverseDisplacementDecoder(torch.nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, z, pos):
-        self.batch_size = z[0].shape[0]
+        self.batch_size = z.shape[0]
 
         if self.mask == None:
             posn = pos
@@ -373,7 +368,7 @@ class InverseDisplacementDecoder(torch.nn.Module):
                 enc_pos = positional_encoding(posn, self.pos_enc_dim,
                                               self.box_size)
 
-            conf_feat = torch.stack(posn.shape[1] * [z[0]],
+            conf_feat = torch.stack(posn.shape[1] * [z],
                                     0).squeeze().movedim(0, 1)
 
             res = self.lin0(torch.cat([enc_pos, conf_feat], 2))

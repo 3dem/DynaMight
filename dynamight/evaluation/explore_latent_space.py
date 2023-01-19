@@ -23,7 +23,7 @@ def explore_latent_space(
     particle_diameter: Optional[float] = None,
     soft_edge_width: float = 20,
     batch_size: int = 100,
-    gpu_id: Optional[int] = None,
+    gpu_id: Optional[int] = 0,
     preload_images: bool = True,
     n_workers: int = 8,
     dimensionality_reduction_method: str = 'PCA',
@@ -123,6 +123,7 @@ def explore_latent_space(
     else:
         embedded_latent_space = latent_space.cpu().numpy()
 
+    embedded_latent_space = torch.tensor(embedded_latent_space)
     closest_idx = np.argmin(latent_colors['amount'])
     latent_closest = embedded_latent_space[closest_idx]
 

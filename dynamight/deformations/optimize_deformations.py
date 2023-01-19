@@ -84,8 +84,14 @@ def optimize_deformations(
 ):
     # create directory structure
     deformations_directory = output_directory / 'forward_deformations'
-    deformations_directory.mkdir(exist_ok=True, parents=True)
+    volumes_directory = deformations_directory / 'volumes'
+    graphs_directory = deformations_directory / 'graphs'
+    checkpoints_directory = deformations_directory / 'checkpoints'
 
+    deformations_directory.mkdir(exist_ok=True, parents=True)
+    volumes_directory.mkdir(exist_ok=True, parents=True)
+    graphs_directory.mkdir(exist_ok=True, parents=True)
+    checkpoints_directory.mkdir(exist_ok=True, parents=True)
     # todo: implement
     #       add argument for free gaussians and mask
     #       add argument intial_resolution
@@ -626,132 +632,112 @@ def optimize_deformations(
             else:
                 x = torch.fft.fft2(x, dim=[-2, -1], norm='ortho')
 
-            if tot_latent_dim > 2:
-                if epoch % 5 == 0 and epoch > n_warmup_epochs:
+            if epoch % 5 == 0:
+                if tot_latent_dim > 2:
+                    if epoch % 5 == 0 and epoch > n_warmup_epochs:
+                        summ.add_figure("Data/latent",
+                                        visualize_latent(latent_space, c=torch.cat(
+                                            [torch.zeros(len(dataset_half1)),
+                                             torch.ones(len(dataset_half2))], 0), s=3,
+                                            alpha=0.2, method='pca'),
+                                        epoch)
+
+                else:
                     summ.add_figure("Data/latent",
-                                    visualize_latent(latent_space, c=torch.cat(
-                                        [torch.zeros(len(dataset_half1)),
-                                         torch.ones(len(dataset_half2))], 0), s=3,
-                                        alpha=0.2, method='pca'),
+                                    visualize_latent(
+                                        latent_space,
+                                        c=torch.cat([torch.zeros(len(dataset_half1)),
+                                                     torch.ones(len(dataset_half2))], 0),
+                                        s=3,
+                                        alpha=0.2),
                                     epoch)
-                    summ.add_figure(
-                        "Data/latent2",
-                        visualize_latent(latent_space, c=cols, s=3, alpha=0.2,
-                                         method='pca'))
 
-            else:
-                summ.add_figure("Data/latent",
-                                visualize_latent(
-                                    latent_space,
-                                    c=torch.cat([torch.zeros(len(dataset_half1)),
-                                                 torch.ones(len(dataset_half2))], 0),
-                                    s=3,
-                                    alpha=0.2),
+                summ.add_scalar("Loss/kld_loss",
+                                (losses_half1['latent_loss'] + losses_half2[
+                                    'latent_loss']) / (
+                                    len(data_loader_half1) + len(
+                                        data_loader_half2)), epoch)
+                summ.add_scalar("Loss/mse_loss",
+                                (losses_half1['reconstruction_loss'] + losses_half2[
+                                    'reconstruction_loss']) / (
+                                    len(data_loader_half1) + len(
+                                        data_loader_half2)), epoch)
+                summ.add_scalars("Loss/mse_loss_halfs",
+                                 {'half1': (losses_half1['reconstruction_loss']) / (len(
+                                     data_loader_half1)),
+                                  'half2': (losses_half2['reconstruction_loss']) / (
+                                      len(data_loader_half2))}, epoch)
+                summ.add_scalar("Loss/total_loss", (
+                    losses_half1['loss'] + losses_half2['loss']) / (
+                    len(data_loader_half1) + len(
+                        data_loader_half2)), epoch)
+                summ.add_scalar("Loss/geometric_loss",
+                                (losses_half1['geometric_loss'] + losses_half2[
+                                    'geometric_loss']) / (
+                                    len(data_loader_half1) + len(
+                                        data_loader_half2)), epoch)
+
+                summ.add_scalar(
+                    "Loss/variance1a",
+                    decoder_half1.image_smoother.B[0].detach().cpu(), epoch)
+                summ.add_scalar(
+                    "Loss/variance2a",
+                    decoder_half2.image_smoother.B[0].detach().cpu(), epoch)
+
+                summ.add_figure("Data/FSC_half_maps",
+                                tensor_plot(fourier_shell_correlation), epoch)
+                summ.add_scalar("Loss/N_graph_h1", N_graph_h1, epoch)
+                summ.add_scalar("Loss/N_graph_h2", N_graph_h2, epoch)
+                summ.add_scalar("Loss/reg_param_h1",
+                                lambda_regularization_half1, epoch)
+                summ.add_scalar("Loss/reg_param_h2",
+                                lambda_regularization_half2, epoch)
+                summ.add_scalar("Loss/substitute_h1",
+                                consensus_update_rate_h1, epoch)
+                summ.add_scalar("Loss/substitute_h2",
+                                consensus_update_rate_h2, epoch)
+                summ.add_scalar("Loss/pose_error", angular_error, epoch)
+                summ.add_scalar("Loss/trans_error", translational_error, epoch)
+                summ.add_figure("Data/output", tensor_imshow(torch.fft.fftshift(
+                    apply_ctf(visualization_data_half1['projection_image'][0],
+                              visualization_data_half1['ctf'][0].float()).squeeze().cpu(),
+                    dim=[-1, -2])), epoch)
+                summ.add_figure("Data/target", tensor_imshow(torch.fft.fftshift(
+                    apply_ctf(visualization_data_half1['target_image'][0],
+                              data_normalization_mask.float()
+                              ).squeeze().cpu(),
+                    dim=[-1, -2])),
+                    epoch)
+                summ.add_figure("Data/cons_points_z_half1",
+                                tensor_scatter(decoder_half1.model_positions[:, 0],
+                                               decoder_half1.model_positions[:, 1],
+                                               c=mean_dist_half1, s=3), epoch)
+                summ.add_figure("Data/cons_points_z_half2",
+                                tensor_scatter(decoder_half2.model_positions[:, 0],
+                                               decoder_half2.model_positions[:, 1],
+                                               c=mean_dist_half2, s=3), epoch)
+                summ.add_figure(
+                    "Data/deformed_points",
+                    tensor_scatter(visualization_data_half1['deformed_points'][0, :, 0],
+                                   visualization_data_half1['deformed_points'][0, :, 1],
+                                   'b',
+                                   s=0.1), epoch)
+
+                summ.add_figure("Data/projection_image",
+                                tensor_imshow(torch.fft.fftshift(torch.real(
+                                    torch.fft.ifftn(
+                                        visualization_data_half1['projection_image'][0],
+                                        dim=[-1,
+                                             -2])).squeeze().detach().cpu(),
+                                    dim=[-1, -2])),
                                 epoch)
-                summ.add_figure("Data/latent2",
-                                visualize_latent(
-                                    latent_space, c=cols, s=3, alpha=0.2),
-                                epoch)
-            summ.add_scalar("Loss/kld_loss",
-                            (losses_half1['latent_loss'] + losses_half2[
-                                'latent_loss']) / (
-                                len(data_loader_half1) + len(
-                                    data_loader_half2)), epoch)
-            summ.add_scalar("Loss/mse_loss",
-                            (losses_half1['reconstruction_loss'] + losses_half2[
-                                'reconstruction_loss']) / (
-                                len(data_loader_half1) + len(
-                                    data_loader_half2)), epoch)
-            summ.add_scalars("Loss/mse_loss_halfs",
-                             {'half1': (losses_half1['reconstruction_loss']) / (len(
-                                 data_loader_half1)),
-                              'half2': (losses_half2['reconstruction_loss']) / (
-                                  len(data_loader_half2))}, epoch)
-            summ.add_scalar("Loss/total_loss", (
-                losses_half1['loss'] + losses_half2['loss']) / (
-                len(data_loader_half1) + len(
-                    data_loader_half2)), epoch)
-            summ.add_scalar("Loss/dist_loss",
-                            (losses_half1['geometric_loss'] + losses_half2[
-                                'geometric_loss']) / (
-                                len(data_loader_half1) + len(
-                                    data_loader_half2)), epoch)
+                summ.add_figure("Data/dis_var", tensor_plot(D_var), epoch)
 
-            summ.add_scalar(
-                "Loss/variance1a",
-                decoder_half1.image_smoother.B[0].detach().cpu(), epoch)
-            summ.add_scalar(
-                "Loss/variance2a",
-                decoder_half2.image_smoother.B[0].detach().cpu(), epoch)
-
-            summ.add_figure("Data/cons_amp_h1",
-                            tensor_plot(decoder_half1.amp.detach()), epoch)
-            summ.add_figure("Data/cons_amp_h2",
-                            tensor_plot(decoder_half2.amp.detach()), epoch)
-            summ.add_figure("Data/FSC_half_maps",
-                            tensor_plot(fourier_shell_correlation), epoch)
-            summ.add_scalar("Loss/N_graph_h1", N_graph_h1, epoch)
-            summ.add_scalar("Loss/N_graph_h2", N_graph_h2, epoch)
-            summ.add_scalar("Loss/reg_param_h1",
-                            lambda_regularization_half1, epoch)
-            summ.add_scalar("Loss/reg_param_h2",
-                            lambda_regularization_half2, epoch)
-            summ.add_scalar("Loss/substitute_h1",
-                            consensus_update_rate_h1, epoch)
-            summ.add_scalar("Loss/substitute_h2",
-                            consensus_update_rate_h2, epoch)
-            summ.add_scalar("Loss/pose_error", angular_error, epoch)
-            summ.add_scalar("Loss/trans_error", translational_error, epoch)
-            summ.add_figure("Data/output", tensor_imshow(torch.fft.fftshift(
-                apply_ctf(visualization_data_half1['projection_image'][0],
-                          visualization_data_half1['ctf'][0].float()).squeeze().cpu(),
-                dim=[-1, -2])), epoch)
-            summ.add_figure(
-                "Data/input", tensor_imshow(
-                    visualization_data_half1['input_image'][
-                        0].squeeze().detach().cpu()),
-                epoch)
-            summ.add_figure("Data/target", tensor_imshow(torch.fft.fftshift(
-                apply_ctf(visualization_data_half1['target_image'][0],
-                          data_normalization_mask.float()
-                          ).squeeze().cpu(),
-                dim=[-1, -2])),
-                epoch)
-            summ.add_figure("Data/cons_points_z_half1",
-                            tensor_scatter(decoder_half1.model_positions[:, 0],
-                                           decoder_half1.model_positions[:, 1],
-                                           c=mean_dist_half1, s=3), epoch)
-            summ.add_figure("Data/cons_points_z_half2",
-                            tensor_scatter(decoder_half2.model_positions[:, 0],
-                                           decoder_half2.model_positions[:, 1],
-                                           c=mean_dist_half2, s=3), epoch)
-            summ.add_figure(
-                "Data/deformed_points",
-                tensor_scatter(visualization_data_half1['deformed_points'][0, :, 0],
-                               visualization_data_half1['deformed_points'][0, :, 1],
-                               'b',
-                               s=0.1), epoch)
-
-            summ.add_figure("Data/projection_image",
-                            tensor_imshow(torch.fft.fftshift(torch.real(
-                                torch.fft.ifftn(
-                                    visualization_data_half1['projection_image'][0],
-                                    dim=[-1,
-                                         -2])).squeeze().detach().cpu(),
-                                dim=[-1, -2])),
-                            epoch)
-            summ.add_figure("Data/mod_model", tensor_imshow(apply_ctf(
-                visualization_data_half1['projection_image'][0],
-                visualization_data_half1['ctf'][0].float())), epoch)
-            summ.add_figure("Data/shapes", tensor_plot(FF), epoch)
-            summ.add_figure("Data/dis_var", tensor_plot(D_var), epoch)
-
-            summ.add_figure("Data/frc_h1", tensor_plot(frc_half1), epoch)
-            summ.add_figure("Data/frc_h2", tensor_plot(frc_half2), epoch)
-
+                summ.add_figure("Data/frc_h1", tensor_plot(frc_half1), epoch)
+                summ.add_figure("Data/frc_h2", tensor_plot(frc_half2), epoch)
         epoch_t = time.time() - start_time
 
-        if epoch % 1 == 0 or epoch == (n_epochs - 1):
+        if epoch % 10 == 0 or epoch == (n_epochs - 1):
             with torch.no_grad():
                 V_h1 = decoder_half1.generate_consensus_volume().cpu()
                 V_h2 = decoder_half2.generate_consensus_volume().cpu()
@@ -779,10 +765,9 @@ def optimize_deformations(
                     checkpoint_file = deformations_directory / 'checkpoint_final.pth'
                     torch.save(checkpoint, checkpoint_file)
                 else:
-                    checkpoint_file = deformations_directory / \
-                        f'{epoch:03}.pth'
+                    checkpoint_file = checkpoints_directory / f'{epoch:03}.pth'
                     torch.save(checkpoint, checkpoint_file)
-                xyz_file = deformations_directory / f'{epoch:03}.xyz'
+                xyz_file = graphs_directory / ('points'+f'{epoch:03}.xyz')
                 write_xyz(
                     decoder_half1.model_positions,
                     xyz_file,
@@ -791,19 +776,13 @@ def optimize_deformations(
                     class_id=gaussian_widths
                 )
                 graph2bild(decoder_half1.model_positions, decoder_half1.radius_graph,
-                           str(
-                               output_directory) + '/graph' + str(
-                               epoch).zfill(3), color=epoch % 65)
+                           graphs_directory / ('graph' + f'{epoch:03}.bild'), color=epoch % 65)
 
-                with mrcfile.new(
-                    str(output_directory) + '/volume_half1_' + str(
-                        epoch).zfill(3) + '.mrc', overwrite=True) as mrc:
+                with mrcfile.new(volumes_directory / ('volume_half1_' + f'{epoch:03}.mrc'), overwrite=True) as mrc:
                     mrc.set_data(
                         (V_h1[0] / torch.mean(V_h1[0])).float().numpy())
                     mrc.voxel_size = ang_pix
-                with mrcfile.new(
-                    str(output_directory) + '/volume_half2_' + str(
-                        epoch).zfill(3) + '.mrc', overwrite=True) as mrc:
+                with mrcfile.new(volumes_directory / ('volume_half2_' + f'{epoch:03}.mrc'), overwrite=True) as mrc:
                     mrc.set_data(
                         (V_h2[0] / torch.mean(V_h2[0])).float().numpy())
                     mrc.voxel_size = ang_pix

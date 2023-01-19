@@ -12,7 +12,7 @@ from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.widgets import LassoSelector, PolygonSelector
 from tqdm import tqdm
-
+from matplotlib.backends.backend_qt5agg import FigureCanvas
 from dynamight.utils.utils_new import compute_threshold, bezier_curve, make_equidistant
 
 
@@ -43,7 +43,6 @@ class Visualizer:
         self.cons_volume = cons_volume / np.max(cons_volume)
         self.V0 = (V0[0] / torch.max(V0)).cpu().numpy()
         self.threshold = compute_threshold(torch.tensor(self.V0))
-
 
         # setup napari viewer
         self.vol_layer = self.viewer.add_image(
@@ -95,11 +94,13 @@ class Visualizer:
         self.axes1 = self.lat_canv.figure.subplots()
         self.axes1.scatter(
             z[:, 0], z[:, 1], c=latent_colors['direction'])
-        self.axes1.scatter(self.latent_closest[0], self.latent_closest[1], c='r')
+        self.axes1.scatter(
+            self.latent_closest[0], self.latent_closest[1], c='r')
         self.lat_im = self.viewer.window.add_dock_widget(
             self.lat_canv, area='right', name='latent space'
         )
-        self.viewer.window._qt_window.resizeDocks([self.lat_im], [800], Qt.Horizontal)
+        self.viewer.window._qt_window.resizeDocks(
+            [self.lat_im], [800], Qt.Horizontal)
         self.rep_menu = widgets.ComboBox(
             label='3d representation', choices=['volume', 'points']
         )
@@ -197,7 +198,7 @@ class Visualizer:
             self.lat_canv.draw()
         elif selected_label == 'density':
             h, x, y, p = plt.hist2d(
-                self.z[:, 0], self.z[:, 1], bins=(50, 50), cmap='hot')
+                self.z[:, 0].numpy(), self.z[:, 1].numpy(), bins=(50, 50), cmap='hot')
             ex = [self.axes1.dataLim.x0, self.axes1.dataLim.x1, self.axes1.dataLim.y0,
                   self.axes1.dataLim.y1]
             self.axes1.clear()
@@ -209,7 +210,7 @@ class Visualizer:
             self.lat_canv.draw()
         elif selected_label == 'log-density':
             h, x, y, p = plt.hist2d(
-                self.z[:, 0], self.z[:, 1], bins=(50, 50), cmap='hot')
+                self.z[:, 0].numpy(), self.z[:, 1].numpy(), bins=(50, 50), cmap='hot')
             ex = [self.axes1.dataLim.x0, self.axes1.dataLim.x1, self.axes1.dataLim.y0,
                   self.axes1.dataLim.y1]
             self.axes1.clear()
@@ -291,14 +292,14 @@ class Visualizer:
         ix, iy = event.xdata, event.ydata
         if self.decoder.latent_dim > 2:
             inst_coord = torch.tensor(np.array([ix, iy])).float()
-            dist = torch.linalg.norm(torch.tensor(
-                self.z) - inst_coord.unsqueeze(0), dim=1)
+            dist = torch.linalg.norm(
+                self.z - inst_coord.unsqueeze(0), dim=1)
             inst_ind = torch.argmin(dist, 0)
             lat_coord = self.latent_space[inst_ind]
         else:
             inst_coord = torch.tensor(np.array([ix, iy])).float()
-            dist = torch.linalg.norm(torch.tensor(
-                self.z) - inst_coord.unsqueeze(0), dim=1)
+            dist = torch.linalg.norm(
+                self.z - inst_coord.unsqueeze(0), dim=1)
             inst_ind = torch.argmin(dist, 0)
             lat_coord = self.z[inst_ind]
 
@@ -389,7 +390,8 @@ class Visualizer:
         new_star = self.star_data.copy()
         ninds = np.where(new_indices == True)
         nindsfull = self.indices[ninds[0]]
-        new_star['particles'] = self.star_data['particles'].loc[list(nindsfull)]
+        new_star['particles'] = self.star_data['particles'].loc[list(
+            nindsfull)]
         print('created star file with ', len(ninds[0]), 'particles')
         starfile.write(new_star, self.output_directory + 'subset_' +
                        str(self.star_nr) + '_half' + str(self.half_set) + '.star')

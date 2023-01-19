@@ -138,10 +138,10 @@ def generate_smooth_mask_and_grids(mask_file, device, soft_edge=10):
     return ess_grid, out_grid, sm_bin_mask
 
 
-def generate_smooth_mask_from_consensus(consensus, box_size, ang_pix, distance, soft_edge=10):
+def generate_smooth_mask_from_consensus(decoder, box_size, ang_pix, distance, soft_edge=10):
     "generate mask from consensus gaussian model with mask being 1 if voxel center closer than distance (in angstrom) from a gaussian center"
-    device = consensus.device
-    points = (consensus.pos*box_size)/ang_pix
+    device = decoder.device
+    points = (decoder.model_positions*box_size)/ang_pix
     x = (torch.linspace(-0.5, 0.5, box_size)*(box_size-1))/ang_pix
     grid = torch.meshgrid(x, x, x)
     grid = torch.stack([grid[0].ravel(), grid[1].ravel(), grid[2].ravel()], 1)
@@ -162,3 +162,55 @@ def generate_smooth_mask_from_consensus(consensus, box_size, ang_pix, distance, 
     else:
         sm_bin_mask = M.to(device)
     return sm_bin_mask.movedim(0, 1).movedim(1, 2).movedim(0, 1)
+
+
+def get_latent_space_and_indices(
+        data_loader: torch.utils.data.dataloader,
+        encoder: torch.nn.Module,
+        poses: torch.nn.Module,
+        latent_space,
+        data_preprocessor
+):
+
+    latent_indices = []
+    device = encoder.device
+
+    for batch_ndx, sample in enumerate(data_loader):
+        with torch.no_grad():
+            r, y, ctf = sample["rotation"], sample["image"], sample["ctf"]
+            idx = sample['idx']
+            r, t = poses(idx)
+            ctfs = torch.fft.fftshift(ctf, dim=[-1, -2])
+            y_in = data_preprocessor.apply_square_mask(y)
+            y_in = data_preprocessor.apply_translation(
+                y_in, -t[:, 0], -t[:, 1])
+            y_in = data_preprocessor.apply_circular_mask(y_in)
+            mu, _ = encoder(y_in.to(device), ctfs.to(device))
+            latent_space[sample["idx"].cpu().numpy()] = mu.detach().cpu()
+            latent_indices.append(sample['idx'])
+    latent_indices = torch.cat(latent_indices, 0)
+
+    return latent_space, latent_indices
+
+
+def get_latent_space_tiling(
+        latent_space: torch.Tensor,
+        latent_sampling
+):
+
+    diam = torch.zeros(1)
+    xmin = torch.zeros(latent_space.shape[0])
+
+    for i in range(latent_space.shape[0]):
+        xmin[i] = torch.min(latent_space[:, i])
+
+        xmax = torch.max(latent_space[:, i])
+        diam = torch.maximum(xmax - xmin[i], diam)
+
+    max_side = diam
+    xx = []
+    for i in range(latent_space.shape[0]):
+        xx.append(torch.linspace(xmin[i], xmin[i] + max_side[0],
+                                 latent_sampling))
+
+    return xx

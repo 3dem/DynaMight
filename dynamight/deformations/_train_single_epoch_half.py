@@ -36,6 +36,7 @@ def train_epoch(
     running_latent_loss = 0
     running_total_loss = 0
     running_geometric_loss = 0
+    dis_norm = 0
 
     geometric_loss = GeometricLoss(
         mode=mode,
@@ -101,9 +102,9 @@ def train_epoch(
             Proj.squeeze(), y.squeeze(), ctf.float(),
             W=data_normalization_mask[None, :, :])
         latent_loss = -0.5 * \
-                      torch.mean(torch.sum(1 + logsigma - mu ** 2 -
-                                           torch.exp(logsigma), dim=1),
-                                 dim=0)
+            torch.mean(torch.sum(1 + logsigma - mu ** 2 -
+                                 torch.exp(logsigma), dim=1),
+                       dim=0)
 
         if epoch < n_warmup_epochs:  # and cons_model.n_points<args.n_gauss:
             geo_loss = torch.zeros(1).to(device)
@@ -124,7 +125,7 @@ def train_epoch(
             loss = rec_loss + latent_weight * latent_loss
         else:
             loss = rec_loss + latent_weight * latent_loss + \
-                   regularization_parameter * geo_loss
+                regularization_parameter * geo_loss
 
         loss.backward()
         if epoch < n_warmup_epochs:
@@ -174,6 +175,5 @@ def train_epoch(
                               'displacements': deformed_points}
         displacement_statistics = {'mean_displacements': mean_dist,
                                    'displacement_variances': displacement_variance}
-    print(dis_norm)
 
     return latent_space, losses, displacement_statistics, idix, visualization_data

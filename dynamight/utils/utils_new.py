@@ -569,17 +569,16 @@ def write_xyz(
 
 def graph2bild(points, edge_index, title, color=5):
     points = points.detach().cpu().numpy()
-    f = open(title + '.bild', 'a')
-    for k in range(points.shape[0]):
-        f.write("%s %.18g %.18g %.18g %.18g\n" %
-                ('.sphere', points[k, 0], points[k, 1], points[k, 2], 0.01))
-    y = np.concatenate([points[edge_index[0].cpu().numpy()],
-                        points[edge_index[1].cpu().numpy()]], 1)
-    f.write('%s %.18g\n' % ('.color', color))
-    for k in range(y.shape[0]):
-        f.write("%s %.18g %.18g %.18g %.18g %.18g %.18g %.18g\n" % (
-            '.cylinder', y[k, 0], y[k, 1], y[k, 2], y[k, 3], y[k, 4], y[k, 5], 0.6))
-    f.close()
+    with open(title, 'a') as f:
+        for k in range(points.shape[0]):
+            f.write("%s %.18g %.18g %.18g %.18g\n" %
+                    ('.sphere', points[k, 0], points[k, 1], points[k, 2], 0.01))
+        y = np.concatenate([points[edge_index[0].cpu().numpy()],
+                            points[edge_index[1].cpu().numpy()]], 1)
+        f.write('%s %.18g\n' % ('.color', color))
+        for k in range(y.shape[0]):
+            f.write("%s %.18g %.18g %.18g %.18g %.18g %.18g %.18g\n" % (
+                '.cylinder', y[k, 0], y[k, 1], y[k, 2], y[k, 3], y[k, 4], y[k, 5], 0.6))
 
 
 def graphs2bild(total_points, points, edge_indices, amps, title, box_size, ang_pix):
