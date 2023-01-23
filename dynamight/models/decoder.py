@@ -212,8 +212,9 @@ class DisplacementDecoder(torch.nn.Module):
     def initialize_physical_parameters(
         self,
         reference_volume: torch.Tensor,
+        #lr: float = 0.001,
         lr: float = 0.001,
-        n_epochs: int = 300,
+        n_epochs: int = 100,
     ):
         optimizer = torch.optim.Adam(self.physical_parameters, lr=lr)
         print(
@@ -225,6 +226,13 @@ class DisplacementDecoder(torch.nn.Module):
                 V[0].float(), reference_volume.to(V.device))
             loss.backward()
             optimizer.step()
+            if i % 100 == 0:
+                with torch.no_grad():
+                    print(self.image_smoother.B)
+                    print(self.image_smoother.A)
+                    with mrcfile.new('/cephfs/schwab/dynamight_test_spike_gauss/' + f'{i:03}.mrc', overwrite=True) as mrc:
+                        mrc.set_data(V[0].cpu().float().numpy())
+                        mrc.voxel_size = self.ang_pix
         print('Final error:', loss.item())
 
     def compute_neighbour_graph(self):
@@ -244,7 +252,7 @@ class DisplacementDecoder(torch.nn.Module):
                                     ] - positions_ang[self.radius_graph[1]]
         self.model_distances = torch.pow(torch.sum(differences**2, 1), 0.5)
 
-    @property
+    @ property
     def physical_parameters(self) -> torch.nn.ParameterList:
         """Parameters which make up a coordinate model."""
         params = [
@@ -283,17 +291,23 @@ class DisplacementDecoder(torch.nn.Module):
         ) * self.amp.to(self.device)
         volume = p2v(positions=torch.stack(
             2*[self.model_positions], 0), amplitudes=amplitudes)
-        volume = torch.fft.fftn(volume, dim=[-3, -2, -1])
+        volume = torch.fft.fftn(torch.fft.fftshift(
+            volume, dim=[-1, -2, -3]), dim=[-3, -2, -1])
         R, M = radial_index_mask3(self.vol_box)
         R = torch.stack(self.image_smoother.n_classes * [R.to(self.device)], 0)
-        FF = torch.exp(-self.image_smoother.B[:, None, None,
-                                              None] ** 2 * R) * self.image_smoother.A[:, None, None,
-                                                                                      None] ** 2
+        # FF = torch.exp(-self.image_smoother.B[:, None, None,
+        #                                      None] ** 2 * R) * self.image_smoother.A[:, None, None,
+        #                                                                              None] ** 2
+        FF = torch.exp(-(1/self.image_smoother.B[:, None, None,
+                                                 None]) * R**2) * self.image_smoother.A[
+            :, None,
+            None,
+            None] ** 2
         bs = 2
         Filts = torch.stack(bs * [FF], 0)
         Filts = torch.fft.ifftshift(Filts, dim=[-3, -2, -1])
-        volume = torch.real(
-            torch.fft.ifftn(torch.sum(Filts * volume, 1), dim=[-3, -2, -1]))
+        volume = torch.real(torch.fft.fftshift(
+            torch.fft.ifftn(torch.sum(Filts * volume, 1), dim=[-3, -2, -1]), dim=[-1, -2, -3]))
         return volume
 
     def generate_volume(self, z, r, shift):
@@ -309,19 +323,25 @@ class DisplacementDecoder(torch.nn.Module):
                 torch.stack(
                     bs * [torch.nn.functional.softmax(self.ampvar, dim=0)],
                     0) * self.amp).to(self.device)
-        V = torch.fft.fftn(V, dim=[-3, -2, -1])
+        V = torch.fft.fftn(torch.fft.fftshift(
+            V, dim=[-1, -2, -3]), dim=[-3, -2, -1])
         R, M = radial_index_mask3(self.vol_box)
         R = torch.stack(self.image_smoother.n_classes * [R.to(self.device)], 0)
-        FF = torch.exp(-self.image_smoother.B[:, None, None,
-                                              None] ** 2 * R) * self.image_smoother.A[
+        # FF = torch.exp(-self.image_smoother.B[:, None, None,
+        #                                       None] ** 2 * R) * self.image_smoother.A[
+        #     :, None,
+        #     None,
+        #     None] ** 2
+        FF = torch.exp(-(1/self.image_smoother.B[:, None, None,
+                                                 None]) * R**2) * self.image_smoother.A[
             :, None,
             None,
             None] ** 2
         bs = V.shape[0]
         Filts = torch.stack(bs * [FF], 0)
         Filts = torch.fft.ifftshift(Filts, dim=[-3, -2, -1])
-        V = torch.real(
-            torch.fft.ifftn(torch.sum(Filts * V, 1), dim=[-3, -2, -1]))
+        V = torch.real(torch.fft.fftshift(torch.fft.ifftn(
+            torch.sum(Filts * V, 1), dim=[-3, -2, -1]), dim=[-1, -2, -3]))
         return V
 
 

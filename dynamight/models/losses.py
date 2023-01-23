@@ -2,14 +2,14 @@ from typing import Union
 
 import torch
 
-from .constants import ConsensusInitializationMode
+from .constants import RegularizationMode
 from ..utils.utils_new import scatter
 
 
 class GeometricLoss:
     def __init__(
         self,
-        mode: ConsensusInitializationMode,
+        mode: RegularizationMode,
         neighbour_loss_weight: float = 0.01,
         repulsion_weight: float = 0.01,
         outlier_weight: float = 1,
@@ -39,7 +39,7 @@ class GeometricLoss:
         )
         loss = self.deformation_regularity_weight * deformation_regularity_loss
 
-        if self.mode != ConsensusInitializationMode.MODEL:
+        if self.mode != RegularizationMode.MODEL:
             neighbour_loss = self.calculate_neighbour_loss(
                 positions=positions_angstroms,
                 radius_graph=radius_graph,
@@ -82,11 +82,14 @@ class GeometricLoss:
             (2, n_edges) set of indices into positions
 
         """
-        differences = positions[:, radius_graph[0]] - positions[:, radius_graph[1]]
+        differences = positions[:, radius_graph[0]] - \
+            positions[:, radius_graph[1]]
         distances = torch.pow(torch.sum(differences ** 2, dim=-1) + 1e-7, 0.5)
-        distance_activation = _distance_activation(distances, mean_neighbour_distance)
+        distance_activation = _distance_activation(
+            distances, mean_neighbour_distance)
         n_neighbours = scatter(distance_activation, radius_graph[0])
-        neighbour_activation = _neighbour_activation(n_neighbours, minimum=1, maximum=3)
+        neighbour_activation = _neighbour_activation(
+            n_neighbours, minimum=1, maximum=3)
         return torch.mean(neighbour_activation)
 
     def calculate_repulsion_loss(
@@ -106,7 +109,8 @@ class GeometricLoss:
         mean_neighbour_distance: float
             mean of distance to neighbours
         """
-        differences = positions[:, radius_graph[0]] - positions[:, radius_graph[1]]
+        differences = positions[:, radius_graph[0]] - \
+            positions[:, radius_graph[1]]
         distances = torch.pow(torch.sum(differences ** 2, dim=-1) + 1e7, 0.5)
 
         # set cutoff distance for repulsion penalty
@@ -141,10 +145,11 @@ class GeometricLoss:
         consensus_pairwise_distances: torch.Tensor,
     ):
         """Average difference in pairwise distance between consensus and updated model."""
-        differences = positions[:, radius_graph[0]] - positions[:, radius_graph[1]]
+        differences = positions[:, radius_graph[0]] - \
+            positions[:, radius_graph[1]]
         distances = torch.pow(torch.sum(differences ** 2, dim=-1), 0.5)
         difference_in_pairwise_distances = (
-                                               distances - consensus_pairwise_distances) ** 2
+            distances - consensus_pairwise_distances) ** 2
         return torch.mean(difference_in_pairwise_distances)
 
 

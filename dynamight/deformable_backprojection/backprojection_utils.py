@@ -169,11 +169,11 @@ def get_latent_space_and_indices(
         encoder: torch.nn.Module,
         poses: torch.nn.Module,
         latent_space,
-        data_preprocessor
+        data_preprocessor,
+        device
 ):
 
     latent_indices = []
-    device = encoder.device
 
     for batch_ndx, sample in enumerate(data_loader):
         with torch.no_grad():
@@ -199,9 +199,9 @@ def get_latent_space_tiling(
 ):
 
     diam = torch.zeros(1)
-    xmin = torch.zeros(latent_space.shape[0])
+    xmin = torch.zeros(latent_space.shape[1])
 
-    for i in range(latent_space.shape[0]):
+    for i in range(latent_space.shape[1]):
         xmin[i] = torch.min(latent_space[:, i])
 
         xmax = torch.max(latent_space[:, i])
@@ -209,7 +209,7 @@ def get_latent_space_tiling(
 
     max_side = diam
     xx = []
-    for i in range(latent_space.shape[0]):
+    for i in range(latent_space.shape[1]):
         xx.append(torch.linspace(xmin[i], xmin[i] + max_side[0],
                                  latent_sampling))
 

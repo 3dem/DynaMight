@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 
-from ..models.constants import ConsensusInitializationMode
+from ..models.constants import ConsensusInitializationMode, RegularizationMode
 from ..models.losses import GeometricLoss
 from ..utils.utils_new import frc, fourier_loss
 
@@ -25,7 +25,7 @@ def train_epoch(
     latent_weight,
     regularization_parameter,
     consensus_update_pooled_particles,
-    mode: ConsensusInitializationMode,
+    regularization_mode: RegularizationMode
 ):
     # todo: schwab implement and substitute in optimize deformations
     device = decoder.device
@@ -39,7 +39,7 @@ def train_epoch(
     dis_norm = 0
 
     geometric_loss = GeometricLoss(
-        mode=mode,
+        mode=regularization_mode,
         neighbour_loss_weight=0.01,
         repulsion_weight=0.01,
         outlier_weight=1,
@@ -47,10 +47,6 @@ def train_epoch(
     )
 
     for batch_ndx, sample in tqdm(enumerate(dataloader)):
-        if batch_ndx % dataloader.batch_size == 0:
-            print('Processing batch', batch_ndx / dataloader.batch_size, 'of',
-                  int(np.ceil(len(dataloader) / dataloader.batch_size)),
-                  ' from half 1')
 
         encoder_optimizer.zero_grad()
         decoder_optimizer.zero_grad()

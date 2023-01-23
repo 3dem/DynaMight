@@ -72,7 +72,7 @@ class Visualizer:
             face_colormap='jet',
             edge_width=0,
             visible=False,
-            name='consensus positions'
+            name='flexible positions'
         )
         self.cons_point_layer = self.viewer.add_points(
             self.nap_cons_pos,
@@ -83,7 +83,7 @@ class Visualizer:
             face_colormap='jet',
             edge_width=0,
             visible=False,
-            name='flexible positions'
+            name='consensus positions'
         )
 
         # add widgets to viewer
@@ -311,7 +311,7 @@ class Visualizer:
             self.vol_layer.data = (
                 vol[0] / torch.max(vol[0])).detach().cpu().numpy()
         elif self.rep_menu.current_choice == 'points':
-            proj, proj_im, proj_pos, pos, dis = self.decoder.forward(
+            proj, pos, dis = self.decoder.forward(
                 lat.to(self.device), self.r.to(self.device), self.t.to(self.device))
             p = torch.cat([self.nap_zeros.unsqueeze(1), (0.5 + pos[0].detach().cpu()) * self.decoder.box_size],
                           1)
@@ -322,7 +322,8 @@ class Visualizer:
         path = torch.tensor(np.array(line))
         xval, yval = bezier_curve(path, nTimes=200)
         path = torch.tensor(np.stack([xval, yval], 1))
-        n_points, new_points = make_equidistant(xval, yval, 100)
+        # n_points, new_points = make_equidistant(xval, yval, 100)
+        new_points = np.stack([xval, yval], 1)
         path = torch.tensor(new_points)
         mu = path[0:2].float()
         vols = []
@@ -334,13 +335,21 @@ class Visualizer:
                     self.z) - path[j].unsqueeze(0), dim=1)
                 inst_ind = torch.argmin(dist, 0)
                 ppath.append(self.latent_space[inst_ind])
-            path = torch.stack(ppath, 0)
+            t = torch.stack(self.decoder.latent_dim *
+                            [torch.tensor(np.linspace(0, 1, 30, endpoint=False))], 1).to(self.device)
+            ppath = torch.stack(ppath, 0)
+            path_len = ppath.shape[0]
+
+            ppath = [(1-t)*ppath[0]+t * ppath[path_len//4], (1-t)*ppath[path_len//4]+t*ppath[path_len//2], (1-t) *
+                     ppath[path_len//2]+t*ppath[3*path_len//4], (1-t)*ppath[3*path_len//4]+t*ppath[-1], ppath[-1].unsqueeze(0)]
+            path = torch.concatenate(ppath, 0)
+            print(path.shape)
             path = torch.unique_consecutive(path, dim=0)
 
         if self.rep_menu.current_choice == 'volume':
             print('Generating movie with', path.shape[0], 'frames')
             for i in tqdm(range(path.shape[0] // 2)):
-                mu = path[i:i + 2].float()
+                mu = path[i: i + 2].float()
                 with torch.no_grad():
                     V = self.decoder.generate_volume(
                         mu.to(self.device), self.r.to(self.device), self.t.to(self.device))
@@ -359,7 +368,7 @@ class Visualizer:
             self.vol_layer.data = VV.numpy()
         if self.rep_menu.current_choice == 'points':
             for i in range(path.shape[0] // 2):
-                mu = path[i:i + 2].float()
+                mu = path[i: i + 2].float()
                 print(i)
                 with torch.no_grad():
                     proj,  pos, dis = self.decoder.forward(

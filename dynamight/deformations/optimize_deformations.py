@@ -25,7 +25,7 @@ from ..data.handlers.particle_image_preprocessor import \
     ParticleImagePreprocessor
 from ..data.dataloaders.relion import RelionDataset
 from ..data.handlers.io_logger import IOLogger
-from ..models.constants import ConsensusInitializationMode
+from ..models.constants import ConsensusInitializationMode, RegularizationMode
 from ..models.decoder import DisplacementDecoder
 from ..models.encoder import HetEncoder
 from ..models.blocks import LinearBlock
@@ -67,11 +67,11 @@ def optimize_deformations(
     n_linear_layers: int = 8,
     n_neurons_per_layer: int = 32,
     n_warmup_epochs: int = 0,
-    weight_decay: float = 0.,
+    weight_decay: float = 1e-7,
     consensus_update_rate: float = 1,
     consensus_update_decay: float = 0.9,
     consensus_update_pooled_particles: int = 100,
-    regularization_factor: float = 0.2,
+    regularization_factor: float = 0.5,
     apply_bfactor: float = 0,
     particle_diameter: Optional[float] = None,
     soft_edge_width: float = 20,
@@ -108,10 +108,16 @@ def optimize_deformations(
     # set consensus initialisation mode
     if initial_model == None:
         initialization_mode = ConsensusInitializationMode.EMPTY
+        regularization_mode_half1 = RegularizationMode.EMPTY
+        regularization_mode_half2 = RegularizationMode.EMPTY
     elif str(initial_model).endswith('.mrc'):
         initialization_mode = ConsensusInitializationMode.MAP
+        regularization_mode_half1 = RegularizationMode.MAP
+        regularization_mode_half2 = RegularizationMode.MAP
     else:
         initialization_mode = ConsensusInitializationMode.MODEL
+        regularization_mode_half1 = RegularizationMode.MODEL
+        regularization_mode_half2 = RegularizationMode.MODEL
 
     if gpu_id is None:
         typer.echo("Running on CPU")
@@ -201,6 +207,8 @@ def optimize_deformations(
     # initialise the gaussian model
     consensus_update_rate_h1 = consensus_update_rate
     consensus_update_rate_h2 = consensus_update_rate
+    regularization_factor_h1 = regularization_factor
+    regularization_factor_h2 = regularization_factor
     if initialization_mode == ConsensusInitializationMode.MODEL:
         consensus_model, gr = optimize_coarsegraining(
             initial_model, box_size, ang_pix, device, str(output_directory),
@@ -227,7 +235,7 @@ def optimize_deformations(
             else:
                 Ivols = Ivol
             if initial_threshold == None:
-                initial_threshold = compute_threshold(Ivol)
+                initial_threshold = compute_threshold(Ivol, percentage=98.5)
             print('Setting threshold for the initialization to:', initial_threshold)
             initial_points = initialize_points_from_volume(
                 Ivols.movedim(0, 2).movedim(0, 1),
@@ -319,6 +327,8 @@ def optimize_deformations(
 
     old_loss_half1 = 1e8
     old_loss_half2 = 1e8
+    old2_loss_half1 = 1e8
+    old2_loss_half2 = 1e8
 
     # connectivity graphs are computed differently depending on the initialisation mode
     with torch.no_grad():
@@ -380,12 +390,6 @@ def optimize_deformations(
                 decoder_half2.compute_neighbour_graph()
                 decoder_half1.compute_radius_graph()
                 decoder_half2.compute_radius_graph()
-            else:
-                gr1 = gr
-                gr2 = gr
-                pos = decoder_half1.model_positions * box_size * ang_pix
-                cons_dis = torch.pow(
-                    torch.sum((pos[gr1[0]] - pos[gr1[1]]) ** 2, 1), 0.5)
 
         angles_op.zero_grad()
         shifts_op.zero_grad()
@@ -445,12 +449,12 @@ def optimize_deformations(
                 particle_shifts=shifts,
                 particle_euler_angles=angles,
                 data_normalization_mask=data_normalization_mask,
-                regularization_factor=regularization_factor,
                 subset_percentage=10,
                 batch_size=batch_size,
-                mode=initialization_mode,
+                mode=regularization_mode_half1,
             )
-            lambda_regularization_half1 = 0.9 * previous + 0.1 * current
+            lambda_regularization_half1 = regularization_factor_h1 * \
+                (0.9 * previous + 0.1 * current)
 
             previous = lambda_regularization_half2
             current = calibrate_regularization_parameter(
@@ -461,12 +465,12 @@ def optimize_deformations(
                 particle_shifts=shifts,
                 particle_euler_angles=angles,
                 data_normalization_mask=data_normalization_mask,
-                regularization_factor=regularization_factor,
                 subset_percentage=10,
                 batch_size=batch_size,
-                mode=initialization_mode,
+                mode=regularization_mode_half2,
             )
-            lambda_regularization_half2 = 0.9 * previous + 0.1 * current
+            lambda_regularization_half2 = regularization_factor_h2 * \
+                (0.9 * previous + 0.1 * current)
 
         print('new regularization parameter for half 1 is ',
               lambda_regularization_half1)
@@ -491,7 +495,7 @@ def optimize_deformations(
             latent_weight=beta,
             regularization_parameter=lambda_regularization_half1,
             consensus_update_pooled_particles=consensus_update_pooled_particles,
-            mode=initialization_mode,
+            regularization_mode=regularization_mode_half1,
         )
 
         latent_space, losses_half2, displacement_statistics_half2, idix_half2, visualization_data_half2 = train_epoch(
@@ -511,7 +515,7 @@ def optimize_deformations(
             latent_weight=beta,
             regularization_parameter=lambda_regularization_half2,
             consensus_update_pooled_particles=consensus_update_pooled_particles,
-            mode=initialization_mode,
+            regularization_mode=regularization_mode_half2,
         )
 
         angles_op.step()
@@ -535,47 +539,53 @@ def optimize_deformations(
             new_pos_h2 = update_model_positions(particle_dataset, data_preprocessor, encoder_half2,
                                                 decoder_half2, shifts, angles, idix_half2, consensus_update_pooled_particles, batch_size)
 
-            if losses_half1['reconstruction_loss'] < old_loss_half1 and consensus_update_rate_h1 != 0:
+            if losses_half1['reconstruction_loss'] < (old_loss_half1+old2_loss_half1)/2 and consensus_update_rate_h1 != 0:
                 decoder_half1.model_positions = torch.nn.Parameter(
                     (
                         1 - consensus_update_rate_h1) * decoder_half1.model_positions + consensus_update_rate_h1 * new_pos_h1,
                     requires_grad=False)
+                old2_loss_half1 = old_loss_half1
                 old_loss_half1 = losses_half1['reconstruction_loss']
                 nosub_ind_h1 = 0
 
-            if losses_half2['reconstruction_loss'] < old_loss_half2 and consensus_update_rate_h2 != 0:
+            if losses_half2['reconstruction_loss'] < (old_loss_half2+old2_loss_half2)/2 and consensus_update_rate_h2 != 0:
                 decoder_half2.model_positions = torch.nn.Parameter(
                     (
                         1 - consensus_update_rate_h2) * decoder_half2.model_positions + consensus_update_rate_h2 * new_pos_h2,
                     requires_grad=False)
+                old2_loss_half2 = old_loss_half2
                 old_loss_half2 = losses_half2['reconstruction_loss']
                 nosub_ind_h2 = 0
 
-            if losses_half1['reconstruction_loss'] > old_loss_half1 and consensus_update_rate_h1 != 0:
+            if losses_half1['reconstruction_loss'] > (old_loss_half1+old2_loss_half1)/2 and consensus_update_rate_h1 != 0:
                 nosub_ind_h1 += 1
                 print('No consensus updates for ',
                       nosub_ind_h1, ' epochs on half-set 1')
                 if nosub_ind_h1 == 1:
-                    consensus_update_rate_h1 *= 0.8
+                    consensus_update_rate_h1 *= consensus_update_decay
                 if consensus_update_rate_h1 < 0.1:
                     consensus_update_rate_h1 = 0
                     reset_all_linear_layer_weights(decoder_half1)
                     reset_all_linear_layer_weights(encoder_half1)
                     regularization_factor_h1 = 1
-                    initialization_mode = ConsensusInitializationMode.MAP
+                    regularization_mode_half1 = RegularizationMode.MODEL
+                    decoder_half1.compute_neighbour_graph()
+                    decoder_half1.compute_radius_graph()
 
-            if losses_half2['reconstruction_loss'] > old_loss_half2 and consensus_update_rate_h2 != 0:
+            if losses_half2['reconstruction_loss'] > (old_loss_half2+old2_loss_half2)/2 and consensus_update_rate_h2 != 0:
                 nosub_ind_h2 += 1
                 print('No consensus updates for ',
                       nosub_ind_h2, ' epochs on half-set 2')
                 if nosub_ind_h2 == 1:
-                    consensus_update_rate_h2 *= 0.8
+                    consensus_update_rate_h2 *= consensus_update_decay
                 if consensus_update_rate_h2 < 0.1:
                     consensus_update_rate_h2 = 0
                     reset_all_linear_layer_weights(decoder_half2)
                     reset_all_linear_layer_weights(encoder_half2)
                     regularization_factor_h2 = 1
-                    initialization_mode = ConsensusInitializationMode.MAP
+                    regularization_mode_half2 = RegularizationMode.MODEL
+                    decoder_half2.compute_neighbour_graph()
+                    decoder_half2.compute_radius_graph()
 
         with torch.no_grad():
             frc_half1 = losses_half1['fourier_ring_correlation'] / \
@@ -762,7 +772,7 @@ def optimize_deformations(
                               'indices_half1': half1_indices,
                               'refinement_directory': refinement_star_file}
                 if epoch == (n_epochs - 1):
-                    checkpoint_file = deformations_directory / 'checkpoint_final.pth'
+                    checkpoint_file = deformations_directory / 'checkpoints/checkpoint_final.pth'
                     torch.save(checkpoint, checkpoint_file)
                 else:
                     checkpoint_file = checkpoints_directory / f'{epoch:03}.pth'

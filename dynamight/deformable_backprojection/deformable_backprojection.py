@@ -168,13 +168,18 @@ def deformable_backprojection(
                                                                       encoder_half1,
                                                                       poses,
                                                                       latent_space,
-                                                                      data_preprocessor)
+                                                                      data_preprocessor,
+                                                                      device
+                                                                      )
     latent_space, latent_indices_half2 = get_latent_space_and_indices(data_loader_half2,
                                                                       encoder_half2,
                                                                       poses,
                                                                       latent_space,
-                                                                      data_preprocessor)
+                                                                      data_preprocessor,
+                                                                      device
+                                                                      )
 
+    print(latent_space.shape)
     xx = get_latent_space_tiling(latent_space, latent_sampling)
 
     latent_space_half1 = latent_space[latent_indices_half1]

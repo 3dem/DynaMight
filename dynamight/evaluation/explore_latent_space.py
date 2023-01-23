@@ -34,7 +34,8 @@ def explore_latent_space(
     # load and prepare models for inference
     device = "cpu" if gpu_id is None else 'cuda:' + str(gpu_id)
     if checkpoint_file is None:
-        checkpoint_file = output_directory / 'forward_deformations/checkpoint_final.pth'
+        checkpoint_file = output_directory / \
+            'forward_deformations/checkpoints/checkpoint_final.pth'
     cp = torch.load(checkpoint_file, map_location=device)
     if inverse_deformation is not None:
         cp_inv = torch.load(inverse_deformation, map_location=device)

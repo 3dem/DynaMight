@@ -217,8 +217,11 @@ class FourierImageSmoother(nn.Module):
         self.rad_inds, self.rad_mask = radial_index_mask(
             oversampling * box_size)
         if A == None and B == None:
+            # self.B = torch.nn.Parameter(torch.linspace(
+            #     0.0005 * box_size, 0.001 * box_size, n_classes).to(device),
+            #     requires_grad=True)
             self.B = torch.nn.Parameter(torch.linspace(
-                0.0005 * box_size, 0.001 * box_size, n_classes).to(device),
+                16*box_size, 32*box_size, n_classes).to(device),
                 requires_grad=True)
             self.A = torch.nn.Parameter(torch.linspace(
                 0.1, 0.2, n_classes).to(device), requires_grad=True)
@@ -230,8 +233,10 @@ class FourierImageSmoother(nn.Module):
 
     def forward(self, ims):
         R = torch.stack(self.n_classes * [self.rad_inds.to(self.device)], 0)
-        FF = torch.exp(-self.B[:, None, None] ** 2 *
-                       R) * self.A[:, None, None] ** 2
+        # FF = torch.exp(-self.B[:, None, None] ** 2 *
+        #                R) * self.A[:, None, None] ** 2
+        FF = torch.exp(-(1/self.B[:, None, None]) *
+                       R**2) * self.A[:, None, None] ** 2
         bs = ims.shape[0]
         Filts = torch.stack(bs * [FF], 0)
         Filts = torch.fft.ifftshift(Filts, dim=[-2, -1])
@@ -475,14 +480,14 @@ def tensor_plot(tensor):
     return fig
 
 
-def tensor_scatter(x, y, c, s=0.1, alpha=0.5, cmap='jet'):
+def tensor_scatter(x, y, c, s=0.1, alpha=0.5, cmap='inferno'):
     x = x.detach().cpu()
     y = y.detach().cpu()
     backend = matplotlib.rcParams['backend']
     matplotlib.use('pdf')
     fig, ax = plt.subplots(figsize=(5, 5))
 
-    ax.scatter(x, y, alpha=alpha, s=s, c=c)
+    ax.scatter(x, y, alpha=alpha, s=s, c=c, cmap=cmap)
     plt.axis("off")
     plt.subplots_adjust(hspace=0, wspace=0)
     ax.set_axis_off()
@@ -533,7 +538,7 @@ def visualize_latent(z, c, s=0.1, alpha=0.5, cmap='jet', method='umap'):
 
     fig, ax = plt.subplots(figsize=(5, 5))
     s = 40000 / z.shape[0]
-    ax.scatter(embed[:, 0], embed[:, 1], alpha=alpha, s=s, c=c)
+    ax.scatter(embed[:, 0], embed[:, 1], alpha=alpha, s=s, c=c, cmap='jet')
     plt.axis("off")
     plt.subplots_adjust(hspace=0, wspace=0)
     ax.set_axis_off()
@@ -1219,8 +1224,8 @@ class spatial_grad(nn.Module):
         return t.size()[1] * t.size()[2] * t.size()[3]
 
 
-def compute_threshold(V):
-    th = np.percentile(V.flatten().cpu(), 98)
+def compute_threshold(V, percentage=98):
+    th = np.percentile(V.flatten().cpu(), percentage)
     return th
 
 

@@ -1,7 +1,7 @@
 import torch
 from torch.utils.data import DataLoader
 
-from ..models.constants import ConsensusInitializationMode
+from ..models.constants import ConsensusInitializationMode, RegularizationMode
 from ..models.encoder import HetEncoder
 from ..models.decoder import DisplacementDecoder
 from ..data.handlers.particle_image_preprocessor import ParticleImagePreprocessor
@@ -17,8 +17,7 @@ def calibrate_regularization_parameter(
     particle_shifts: torch.nn.Parameter,
     particle_euler_angles: torch.nn.Parameter,
     data_normalization_mask: torch.Tensor,
-    regularization_factor: float,
-    mode: ConsensusInitializationMode,
+    mode: RegularizationMode,
     subset_percentage: float = 10,
     batch_size: int = 100,
 ):
@@ -69,7 +68,7 @@ def calibrate_regularization_parameter(
         particle_shifts=particle_shifts,
         data_normalization_mask=data_normalization_mask,
     )
-    return regularization_factor * (0.5 * (data_norm / geometry_norm))
+    return (0.5 * (data_norm / geometry_norm))
 
 
 def _compute_data_norm(
@@ -143,7 +142,7 @@ def _compute_geometry_norm(
     decoder: DisplacementDecoder,
     particle_euler_angles: torch.nn.Parameter,
     particle_shifts: torch.nn.Parameter,
-    mode: ConsensusInitializationMode,
+    mode: RegularizationMode,
 ):
     geometry_norm = 0
     geometric_loss = GeometricLoss(
