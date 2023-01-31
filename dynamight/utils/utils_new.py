@@ -1302,7 +1302,7 @@ def knn_graph(X, k, workers):
 
 def radius_graph(X, r, workers):
     dev = X.device
-    s_m = radius_neighbors_graph(X.cpu(), r.cpu(), n_jobs=workers)
+    s_m = radius_neighbors_graph(X.cpu(), float(r).cpu(), n_jobs=workers)
     s_m_coo = s_m.tocoo()
     gr0 = torch.tensor(s_m_coo.col)
     gr1 = torch.tensor(s_m_coo.row)
@@ -1335,9 +1335,9 @@ def calculate_grid_oversampling_factor(box_size: int) -> int:
     bilinear interpolation.
     """
     if box_size < 100:
-        grid_oversampling_factor = 2
+        grid_oversampling_factor = 1
     if box_size < 300 and box_size > 99:
-        grid_oversampling_factor = 2
+        grid_oversampling_factor = 1
     if box_size > 299:
         grid_oversampling_factor = 1
     return grid_oversampling_factor
