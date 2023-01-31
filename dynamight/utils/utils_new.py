@@ -1302,7 +1302,7 @@ def knn_graph(X, k, workers):
 
 def radius_graph(X, r, workers):
     dev = X.device
-    s_m = radius_neighbors_graph(X.cpu(), float(r).cpu(), n_jobs=workers)
+    s_m = radius_neighbors_graph(X.cpu(), float(r.cpu()), n_jobs=workers)
     s_m_coo = s_m.tocoo()
     gr0 = torch.tensor(s_m_coo.col)
     gr1 = torch.tensor(s_m_coo.row)
