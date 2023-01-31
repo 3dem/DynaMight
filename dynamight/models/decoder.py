@@ -237,7 +237,7 @@ class DisplacementDecoder(torch.nn.Module):
         ref_amps = reference_norm/self.n_points
         self.image_smoother.A = torch.nn.Parameter(torch.linspace(
             0.5*ref_amps, ref_amps, self.n_classes).to(self.device), requires_grad=True)
-        print('Optimizing scacle only')
+        print('Optimizing scale only')
         optimizer = torch.optim.Adam([self.image_smoother.A], lr=lr)
 
         for i in tqdm(range(n_epochs)):
@@ -262,10 +262,7 @@ class DisplacementDecoder(torch.nn.Module):
             optimizer.step()
             if i % 10 == 0:
                 print(loss.item())
-        with torch.no_grad():
-            with mrcfile.new('/cephfs/schwab/' + f'{i:03}.mrc', overwrite=True) as mrc:
-                mrc.set_data(V[0].cpu().float().numpy())
-                mrc.voxel_size = self.ang_pix
+
         print('Final error:', loss.item())
         self.image_smoother.A = torch.nn.Parameter(
             self.image_smoother.A, requires_grad=True)
