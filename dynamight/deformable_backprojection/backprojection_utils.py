@@ -16,7 +16,7 @@ import mrcfile
 
 def get_ess_grid(grid, points, box_size, edge=600):
     """Find grid points which are close to points from gaussian model."""
-    tree = KDTree(points.cpu().numpy())
+    tree = KDTree(points.detach().cpu().numpy())
     (dists, points) = tree.query(grid.cpu().numpy())
     ess_grid = grid[dists < edge / box_size]
     out_grid = grid[dists >= edge / box_size]
@@ -145,7 +145,7 @@ def generate_smooth_mask_from_consensus(decoder, box_size, ang_pix, distance, so
     x = (torch.linspace(-0.5, 0.5, box_size)*(box_size-1))/ang_pix
     grid = torch.meshgrid(x, x, x)
     grid = torch.stack([grid[0].ravel(), grid[1].ravel(), grid[2].ravel()], 1)
-    tree = KDTree(points.cpu().numpy())
+    tree = KDTree(points.detach().cpu().numpy())
     (dists, points) = tree.query(grid.cpu().numpy())
     ess_grid = grid[dists < distance]
     ess_grid_int = torch.round((ess_grid - torch.min(grid))*ang_pix).long()
@@ -165,7 +165,7 @@ def generate_smooth_mask_from_consensus(decoder, box_size, ang_pix, distance, so
 
 
 def get_latent_space_and_indices(
-        data_loader: torch.utils.data.dataloader,
+        data_loader: torch.utils.data.DataLoader,
         encoder: torch.nn.Module,
         poses: torch.nn.Module,
         latent_space,
@@ -214,3 +214,91 @@ def get_latent_space_tiling(
                                  latent_sampling))
 
     return xx
+
+
+def backproject_images_from_tile(
+        z_tile: torch.Tensor,
+        decoder: torch.nn.Module,
+        inverse_model: torch.nn.Module,
+        grid: torch.Tensor,
+        interpolate_field,
+        rotation,
+        data_loader: torch.utils.data.DataLoader,
+        poses: torch.nn.Module,
+        data_preprocessor,
+        use_ctf=True,
+):
+
+    device = decoder.device
+    box_size = decoder.box_size
+    with torch.no_grad():
+
+        tile_deformation = inverse_model(z_tile, torch.stack(
+            2 * [grid.to(device)], 0))
+
+        disp = interpolate_field.compute_field(tile_deformation[0])
+        disp0 = disp[0, ...]
+        disp1 = disp[1, ...]
+        disp2 = disp[2, ...]
+        disp = torch.stack(
+            [disp0.squeeze(), disp1.squeeze(), disp2.squeeze()], 3)
+        dis_grid = disp[None, :, :, :]
+
+        for batch_ndx, sample in enumerate(data_loader):
+            r, y, ctf = sample["rotation"], sample["image"], sample[
+                "ctf"]
+            idx = sample['idx']
+            r, t = poses(idx)
+            batch_size = y.shape[0]
+            ctfs_l = torch.nn.functional.pad(ctf, (
+                box_size // 2, box_size // 2, box_size // 2,
+                box_size // 2, 0, 0)).to(device)
+            ctfs = torch.fft.fftshift(ctf, dim=[-1, -2])
+            y_in = data_preprocessor.apply_square_mask(y)
+            y_in = data_preprocessor.apply_translation(y_in, -t[:, 0],
+                                                       -t[:, 1])
+            y_in = data_preprocessor.apply_circular_mask(y_in)
+            y_in, r, t, ctfs, ctf = y_in.to(device), r.to(device), t.to(
+                device), ctfs.to(
+                device), ctf.to(device)
+            if use_ctf:
+                y = torch.fft.fft2(y_in, dim=[-1, -2])
+                y = y * ctfs
+                yr = torch.real(
+                    torch.fft.ifft2(y, dim=[-1, -2])).unsqueeze(1)
+            else:
+                yr = y_in.unsqueeze(1)
+
+            ctfr2_l = torch.fft.fftshift(torch.real(
+                torch.fft.ifft2(
+                    torch.fft.fftshift(ctfs_l, dim=[-1, -2]),
+                    dim=[-1, -2], )).unsqueeze(1), dim=[-1, -2])
+            ctfr2_lc = torch.nn.functional.avg_pool2d(ctfr2_l,
+                                                      kernel_size=3,
+                                                      stride=2,
+                                                      padding=1)
+            CTFy = ctfr2_lc.expand(batch_size, box_size, box_size,
+                                   box_size)
+            CTFy = torch.nn.functional.pad(CTFy,
+                                           (0, 1, 0, 1, 0, 1, 0, 0))
+            CTFy = rotation(CTFy.unsqueeze(1), r).squeeze()
+
+            if len(CTFy.shape) < 4:
+                CTFy = CTFy.unsqueeze(0)
+
+            CTFy = CTFy[:, :-1, :-1, :-1]
+
+            Vy = yr.expand(batch_size, box_size, box_size, box_size)
+            Vy = torch.nn.functional.pad(Vy, (0, 1, 0, 1, 0, 1, 0, 0))
+            Vy = rotation(Vy.unsqueeze(1), r).squeeze()
+            if len(Vy.shape) < 4:
+                Vy = Vy.unsqueeze(0)
+            if len(Vy.shape) < 4:
+                Vy = Vy.unsqueeze(0)
+
+            Vy = torch.sum(Vy, 0)
+            Vy = F.grid_sample(input=Vy.unsqueeze(0).unsqueeze(0),
+                               grid=dis_grid.to(device),
+                               mode='bilinear', align_corners=False)
+
+            return Vy, CTFy

@@ -17,6 +17,7 @@ def calibrate_regularization_parameter(
     particle_shifts: torch.nn.Parameter,
     particle_euler_angles: torch.nn.Parameter,
     data_normalization_mask: torch.Tensor,
+    lambda_regularization: torch.Tensor,
     mode: RegularizationMode,
     subset_percentage: float = 10,
     batch_size: int = 100,
@@ -40,6 +41,9 @@ def calibrate_regularization_parameter(
     lambda: float
     """
 
+    if lambda_regularization == 0:  # Fix for first epoch after warmup
+        lambda_regularization = 1
+
     n_particles = round(len(dataset) * (subset_percentage / 100))
     particle_idx = torch.randint(0, len(dataset), (n_particles,))
     subset = torch.utils.data.Subset(dataset, particle_idx)
@@ -57,6 +61,7 @@ def calibrate_regularization_parameter(
         decoder=decoder,
         particle_euler_angles=particle_euler_angles,
         particle_shifts=particle_shifts,
+        lambda_regularization=lambda_regularization,
         mode=mode,
     )
     data_norm = _compute_data_norm(
@@ -68,6 +73,8 @@ def calibrate_regularization_parameter(
         particle_shifts=particle_shifts,
         data_normalization_mask=data_normalization_mask,
     )
+    print('data_norm:', data_norm)
+    print('geometry_norm:', geometry_norm)
     return (0.5 * (data_norm / geometry_norm))
 
 
@@ -121,12 +128,14 @@ def _compute_data_norm(
         reconstruction_loss.backward()
 
         # calculate norm of gradients
+
         with torch.no_grad():
+
             try:
                 total_norm = 0
 
                 for p in decoder.parameters():
-                    if p.requires_grad == True:
+                    if p.requires_grad == True and p.grad != None:
                         param_norm = p.grad.detach().data.norm(2)
                         total_norm += param_norm.item() ** 2
                 data_norm += total_norm ** 0.5
@@ -142,6 +151,7 @@ def _compute_geometry_norm(
     decoder: DisplacementDecoder,
     particle_euler_angles: torch.nn.Parameter,
     particle_shifts: torch.nn.Parameter,
+    lambda_regularization: torch.nn.Parameter,
     mode: RegularizationMode,
 ):
     geometry_norm = 0
@@ -190,6 +200,7 @@ def _compute_geometry_norm(
             radius_graph=decoder.radius_graph,
             box_size=decoder.box_size,
             ang_pix=decoder.ang_pix,
+            n_active_points=decoder.n_active_points
         )
         try:
             geo_loss.backward()
@@ -201,7 +212,7 @@ def _compute_geometry_norm(
                 total_norm = 0
 
                 for p in decoder.parameters():
-                    if p.requires_grad == True:
+                    if p.requires_grad == True and p != None:
                         param_norm = p.grad.detach().data.norm(2)
                         total_norm += param_norm.item() ** 2
                 geometry_norm += total_norm ** 0.5

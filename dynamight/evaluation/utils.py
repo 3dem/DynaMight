@@ -14,8 +14,8 @@ def compute_dimensionality_reduction(
         embedded_latent_space = TSNE(perplexity=1000.0, num_neighbors=1000,
                                      device=0).fit_transform(latent_space.cpu())
     elif method == 'UMAP':
-        embedded_latent_space = umap.UMAP(random_state=12, n_neighbors=100,
-                                          min_dist=1.0).fit_transform(latent_space.cpu().numpy())
+        embedded_latent_space = umap.UMAP(
+            random_state=12, n_neighbors=100).fit_transform(latent_space.cpu().numpy())
     elif method == 'PCA':
         embedded_latent_space = PCA(n_components=2).fit_transform(
             latent_space.cpu().numpy())
@@ -67,14 +67,13 @@ def compute_latent_space_and_colors(
             global_distances += mean_displacement_norm
             model_positions = torch.stack(
                 displacement_norm.shape[0] * [decoder.model_positions], 0)
-
             if batch_ndx == 0:
                 z = mu
                 color_amount = torch.sum(displacement_norm, 1)
                 color_direction = torch.mean(displacements.movedim(2, 0)
                                              * displacement_norm, -1)
                 color_position = torch.mean(
-                    model_positions.movedim(2, 0) * displacement_norm, -1)
+                    model_positions.movedim(2, 0) * displacement_norm, -1)/torch.linalg.vector_norm(displacement_norm, -1)
 
             else:
                 z = torch.cat([z, mu])
@@ -84,7 +83,7 @@ def compute_latent_space_and_colors(
                     [color_direction, torch.mean(displacements.movedim(2, 0) * displacement_norm, -1)], 1)
                 color_position = torch.cat([color_position,
                                             torch.mean(model_positions.movedim(
-                                                2, 0) * displacement_norm, -1)], 1)
+                                                2, 0) * displacement_norm, -1)/torch.linalg.vector_norm(displacement_norm, -1)], 1)
 
     color_direction = torch.movedim(color_direction, 0, 1)
     color_direction = F.normalize(color_direction, dim=1)
@@ -92,7 +91,7 @@ def compute_latent_space_and_colors(
     color_position = torch.movedim(color_position, 0, 1)
     max_position = torch.max(torch.abs(color_position))
     color_position /= max_position
-    color_position = (color_position+1)/4+0.5
+    color_position = (color_position+1)/2
 
     mean_deformation = global_distances / torch.max(global_distances)
     mean_deformation = mean_deformation.cpu().numpy()
@@ -118,5 +117,3 @@ def compute_latent_space_and_colors(
                     'width': widths, 'position': consensus_color}
 
     return z, lat_colors, point_colors
-
-

@@ -43,7 +43,7 @@ def train_epoch(
         neighbour_loss_weight=0.01,
         repulsion_weight=0.01,
         outlier_weight=1,
-        deformation_regularity_weight=1,
+        deformation_regularity_weight=0.1,
     )
 
     for batch_ndx, sample in tqdm(enumerate(dataloader)):
@@ -73,24 +73,17 @@ def train_epoch(
         z = mu + torch.exp(0.5 * logsigma) * torch.randn_like(mu)
         z_in = z
 
-        if epoch < n_warmup_epochs:  # Set latent code for consensus reconstruction to zero
-            Proj, new_points, deformed_points = decoder(
-                z_in,
-                r,
-                shift.to(
-                    device))
-        else:
-            Proj, new_points, deformed_points = decoder(
-                z_in,
-                r,
-                shift.to(
-                    device))
+        Proj, new_points, deformed_points = decoder(
+            z_in,
+            r,
+            shift.to(
+                device))
 
-            with torch.no_grad():
-                try:
-                    frc_vals += frc(Proj, y, ctf)
-                except:
-                    frc_vals = frc(Proj, y, ctf)
+        with torch.no_grad():
+            try:
+                frc_vals += frc(Proj, y, ctf)
+            except:
+                frc_vals = frc(Proj, y, ctf)
 
         y = sample["image"].to(device)
         y = data_preprocessor.apply_circular_mask(y.detach())
@@ -114,11 +107,12 @@ def train_epoch(
                 knn=decoder.neighbour_graph,
                 radius_graph=decoder.radius_graph,
                 box_size=decoder.box_size,
-                ang_pix=decoder.ang_pix
+                ang_pix=decoder.ang_pix,
+                n_active_points=decoder.n_active_points
             )
 
         if epoch < n_warmup_epochs:
-            loss = rec_loss + latent_weight * latent_loss
+            loss = rec_loss
         else:
             loss = rec_loss + latent_weight * latent_loss + \
                 regularization_parameter * geo_loss

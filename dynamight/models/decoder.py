@@ -10,7 +10,7 @@ from dynamight.models.blocks import LinearBlock
 from dynamight.models.utils import positional_encoding
 from dynamight.utils.utils_new import PointProjector, PointsToImages, \
     FourierImageSmoother, PointsToVolumes, \
-    maskpoints, fourier_shift_2d, radial_index_mask3, radial_index_mask, knn_graph, radius_graph
+    maskpoints, fourier_shift_2d, radial_index_mask3, radial_index_mask, knn_graph, radius_graph, fourier_crop3
 
 
 # decoder turns set(s) of points into 2D image(s)
@@ -78,7 +78,8 @@ class DisplacementDecoder(torch.nn.Module):
         self.image_smoother = FourierImageSmoother(
             self.box_size, device, n_classes, grid_oversampling_factor
         )
-        self.p2v = PointsToVolumes(box_size, n_classes)
+        self.p2v = PointsToVolumes(
+            box_size, n_classes, grid_oversampling_factor)
 
         # parameter initialisation
         self.output[-1].weight.data.fill_(0.0)
@@ -88,7 +89,7 @@ class DisplacementDecoder(torch.nn.Module):
             30 * torch.ones(n_classes, n_points), requires_grad=True
         )
         self.ampvar = torch.nn.Parameter(
-            0.5 * torch.randn(n_classes, n_points), requires_grad=True
+            torch.randn(n_classes, n_points), requires_grad=True
         )
         # graphs and distances
         self.neighbour_graph = []
@@ -96,6 +97,11 @@ class DisplacementDecoder(torch.nn.Module):
         self.model_distances = []
         self.mean_neighbour_distance = []
         self.loss_mode = []
+        self.warmup = False
+        self.grid_oversampling_factor = grid_oversampling_factor
+        self.masked_positions = []
+        self.unmasked_positions = []
+        self.n_active_points = []
 
     def _update_positions_unmasked(
         self, z, positions
@@ -178,7 +184,8 @@ class DisplacementDecoder(torch.nn.Module):
         """Decode latent variable into coordinate model and make a projection image."""
         if positions is None:
             positions = self.model_positions
-            amp = self.amp
+            amp = torch.clip(self.amp, min=torch.mean(
+                self.amp), max=3*torch.mean(self.amp))
             ampvar = self.ampvar
         else:
             amp = torch.tensor([1.0]).to(self.device)
@@ -186,15 +193,25 @@ class DisplacementDecoder(torch.nn.Module):
 
         self.batch_size = z.shape[0]
 
-        if self.mask is None:
-            updated_positions, displacements = self._update_positions_unmasked(
-                z, positions
+        if self.warmup == True:
+            updated_positions = positions.expand(
+                self.batch_size, positions.shape[0], 3
             )
-        else:  # TODO: schwab, currently not working
-            # updated_positions, displacements = self._update_positions_masked(
-            #     z, positions
-            # )
-            pass
+            displacements = torch.zeros_like(updated_positions)
+        else:
+            if self.mask is None:
+                updated_positions, displacements = self._update_positions_unmasked(
+                    z, positions
+                )
+            else:  # TODO: schwab, currently not working
+                updated_positions, displacements = self._update_positions_unmasked(
+                    z, self.unmasked_positions
+                )
+                updated_positions = torch.cat(
+                    [updated_positions, self.masked_positions.expand(self.batch_size, self.masked_positions.shape[0], 3)], 1)
+                displacements = torch.cat(
+                    [displacements, torch.zeros_like(self.masked_positions).expand(self.batch_size, self.masked_positions.shape[0], 3)], 1)
+                pass
 
         # turn points into images
         projected_positions = self.projector(updated_positions, orientation)
@@ -212,10 +229,27 @@ class DisplacementDecoder(torch.nn.Module):
     def initialize_physical_parameters(
         self,
         reference_volume: torch.Tensor,
-        #lr: float = 0.001,
-        lr: float = 0.001,
-        n_epochs: int = 100,
+        # lr: float = 0.001,
+        lr: float = 0.005,
+        n_epochs: int = 200,
     ):
+        reference_norm = torch.sum(reference_volume**2)
+        ref_amps = reference_norm/self.n_points
+        self.image_smoother.A = torch.nn.Parameter(torch.linspace(
+            0.5*ref_amps, ref_amps, self.n_classes).to(self.device), requires_grad=True)
+        print('Optimizing scacle only')
+        optimizer = torch.optim.Adam([self.image_smoother.A], lr=lr)
+
+        for i in tqdm(range(n_epochs)):
+            optimizer.zero_grad()
+            V = self.generate_consensus_volume()
+            loss = torch.nn.functional.mse_loss(
+                V[0].float(), reference_volume.to(V.device))
+            loss.backward()
+            optimizer.step()
+            if i % 10 == 0:
+                print(loss.item())
+
         optimizer = torch.optim.Adam(self.physical_parameters, lr=lr)
         print(
             'Initializing gaussian positions from reference deformable_backprojection')
@@ -226,17 +260,23 @@ class DisplacementDecoder(torch.nn.Module):
                 V[0].float(), reference_volume.to(V.device))
             loss.backward()
             optimizer.step()
-            if i % 100 == 0:
-                with torch.no_grad():
-                    print(self.image_smoother.B)
-                    print(self.image_smoother.A)
-                    with mrcfile.new('/cephfs/schwab/dynamight_test_spike_gauss/' + f'{i:03}.mrc', overwrite=True) as mrc:
-                        mrc.set_data(V[0].cpu().float().numpy())
-                        mrc.voxel_size = self.ang_pix
+            if i % 10 == 0:
+                print(loss.item())
+        with torch.no_grad():
+            with mrcfile.new('/cephfs/schwab/' + f'{i:03}.mrc', overwrite=True) as mrc:
+                mrc.set_data(V[0].cpu().float().numpy())
+                mrc.voxel_size = self.ang_pix
         print('Final error:', loss.item())
+        self.image_smoother.A = torch.nn.Parameter(
+            self.image_smoother.A, requires_grad=True)
+        if self.mask is None:
+            self.n_active_points = self.model_positions.shape[0]
+        else:
+            pass
+        print(self.n_active_points)
 
     def compute_neighbour_graph(self):
-        positions_ang = self.model_positions * self.box_size * self.ang_pix
+        positions_ang = self.model_positions.detach() * self.box_size * self.ang_pix
         knn = knn_graph(positions_ang, 2, workers=8)
         differences = positions_ang[knn[0]] - positions_ang[knn[1]]
         neighbour_distances = torch.pow(torch.sum(differences**2, dim=1), 0.5)
@@ -244,13 +284,27 @@ class DisplacementDecoder(torch.nn.Module):
         self.mean_neighbour_distance = torch.mean(neighbour_distances)
 
     def compute_radius_graph(self):
-        positions_ang = self.model_positions * self.box_size * self.ang_pix
+        positions_ang = self.model_positions.detach() * self.box_size * self.ang_pix
         self.radius_graph = radius_graph(
             positions_ang, r=1.5*self.mean_neighbour_distance, workers=8
         )
         differences = positions_ang[self.radius_graph[0]
                                     ] - positions_ang[self.radius_graph[1]]
         self.model_distances = torch.pow(torch.sum(differences**2, 1), 0.5)
+
+    def mask_model_positions(self):
+        unmasked_indices = torch.round(
+            (self.model_positions+0.5)*self.box_size).long().cpu()
+        unmasked_positions = self.model_positions[
+            self.mask[unmasked_indices[:, 0], unmasked_indices[:, 1], unmasked_indices[:, 2]] > 0.9]
+        print('Number of flexible points:', unmasked_positions.shape[0])
+        masked_positions = self.model_positions[
+            self.mask[unmasked_indices[:, 0], unmasked_indices[:, 1], unmasked_indices[:, 2]] < 0.9]
+        self.unmasked_positions = torch.nn.Parameter(
+            unmasked_positions, requires_grad=True)
+        self.masked_positions = torch.nn.Parameter(
+            masked_positions, requires_grad=True)
+        self.n_active_points = self.unmasked_positions.shape[0]
 
     @ property
     def physical_parameters(self) -> torch.nn.ParameterList:
@@ -285,29 +339,40 @@ class DisplacementDecoder(torch.nn.Module):
         else:
             vol_box = self.box_size
         self.batch_size = 2
-        p2v = PointsToVolumes(vol_box, self.n_classes)
+        p2v = PointsToVolumes(vol_box, self.n_classes,
+                              self.grid_oversampling_factor)
         amplitudes = torch.stack(
             2 * [torch.nn.functional.softmax(self.ampvar, dim=0)], dim=0
-        ) * self.amp.to(self.device)
-        volume = p2v(positions=torch.stack(
-            2*[self.model_positions], 0), amplitudes=amplitudes)
+        ) * torch.clip(self.amp, min=torch.mean(self.amp), max=3*torch.mean(self.amp)).to(self.device)
+        if self.mask is None:
+            volume = p2v(positions=torch.stack(
+                2*[self.model_positions], 0), amplitudes=amplitudes)
+        else:
+            stacked_positions = torch.stack(
+                2*[torch.cat([self.masked_positions, self.unmasked_positions], 0)], 0)
+            volume = p2v(positions=torch.stack(
+                2*[self.model_positions], 0), amplitudes=amplitudes)
+
         volume = torch.fft.fftn(torch.fft.fftshift(
-            volume, dim=[-1, -2, -3]), dim=[-3, -2, -1])
-        R, M = radial_index_mask3(self.vol_box)
+            volume, dim=[-1, -2, -3]), dim=[-3, -2, -1], norm='ortho')
+        R, M = radial_index_mask3(self.grid_oversampling_factor*self.vol_box)
         R = torch.stack(self.image_smoother.n_classes * [R.to(self.device)], 0)
-        # FF = torch.exp(-self.image_smoother.B[:, None, None,
-        #                                      None] ** 2 * R) * self.image_smoother.A[:, None, None,
-        #                                                                              None] ** 2
-        FF = torch.exp(-(1/self.image_smoother.B[:, None, None,
-                                                 None]) * R**2) * self.image_smoother.A[
-            :, None,
-            None,
-            None] ** 2
+
+        F = torch.exp(-(1/(self.image_smoother.B[:, None, None,
+                                                 None])**2) * R**2) * (self.image_smoother.A[
+                                                     :, None,
+                                                     None,
+                                                     None]/self.image_smoother.B[:, None, None, None])
+
+        FF = torch.real(torch.fft.fftn(torch.fft.fftshift(
+            F, dim=[-3, -2, -1]), dim=[-3, -2, -1], norm='ortho'))
         bs = 2
         Filts = torch.stack(bs * [FF], 0)
-        Filts = torch.fft.ifftshift(Filts, dim=[-3, -2, -1])
+        Filtim = torch.sum(Filts * volume, 1)
+        Filtim = fourier_crop3(Filtim, self.grid_oversampling_factor)
         volume = torch.real(torch.fft.fftshift(
-            torch.fft.ifftn(torch.sum(Filts * volume, 1), dim=[-3, -2, -1]), dim=[-1, -2, -3]))
+            torch.fft.ifftn(Filtim, dim=[-3, -2, -1], norm='ortho'), dim=[-1, -2, -3]))
+
         return volume
 
     def generate_volume(self, z, r, shift):
@@ -316,32 +381,33 @@ class DisplacementDecoder(torch.nn.Module):
             vol_box = self.box_size // 2
         else:
             vol_box = self.box_size
-        p2v = PointsToVolumes(vol_box, self.n_classes)
+        p2v = PointsToVolumes(vol_box, self.n_classes,
+                              self.grid_oversampling_factor)
         bs = z.shape[0]
+        amplitudes = torch.stack(
+            2 * [torch.nn.functional.softmax(self.ampvar, dim=0)], dim=0
+        ) * torch.clip(self.amp, min=torch.mean(self.amp), max=3*torch.mean(self.amp)).to(self.device)
         _, pos, _ = self.forward(z, r, shift)
         V = p2v(pos,
-                torch.stack(
-                    bs * [torch.nn.functional.softmax(self.ampvar, dim=0)],
-                    0) * self.amp).to(self.device)
+                amplitudes).to(self.device)
         V = torch.fft.fftn(torch.fft.fftshift(
-            V, dim=[-1, -2, -3]), dim=[-3, -2, -1])
-        R, M = radial_index_mask3(self.vol_box)
+            V, dim=[-3, -2, -1]), dim=[-3, -2, -1], norm='ortho')
+        R, M = radial_index_mask3(self.grid_oversampling_factor*self.vol_box)
         R = torch.stack(self.image_smoother.n_classes * [R.to(self.device)], 0)
-        # FF = torch.exp(-self.image_smoother.B[:, None, None,
-        #                                       None] ** 2 * R) * self.image_smoother.A[
-        #     :, None,
-        #     None,
-        #     None] ** 2
-        FF = torch.exp(-(1/self.image_smoother.B[:, None, None,
-                                                 None]) * R**2) * self.image_smoother.A[
-            :, None,
-            None,
-            None] ** 2
+
+        F = torch.exp(-(1/(self.image_smoother.B[:, None, None,
+                                                 None])**2) * R**2) * (self.image_smoother.A[
+                                                     :, None,
+                                                     None,
+                                                     None]/self.image_smoother.B[:, None, None, None])
+        FF = torch.real(torch.fft.fftn(torch.fft.fftshift(
+            F, dim=[-3, -2, -1]), dim=[-3, -2, -1], norm='ortho'))
         bs = V.shape[0]
         Filts = torch.stack(bs * [FF], 0)
-        Filts = torch.fft.ifftshift(Filts, dim=[-3, -2, -1])
+        Filtim = torch.sum(Filts * V, 1)
+        Filtim = fourier_crop3(Filtim, self.grid_oversampling_factor)
         V = torch.real(torch.fft.fftshift(torch.fft.ifftn(
-            torch.sum(Filts * V, 1), dim=[-3, -2, -1]), dim=[-1, -2, -3]))
+            Filtim, dim=[-3, -2, -1], norm='ortho'), dim=[-1, -2, -3]))
         return V
 
 

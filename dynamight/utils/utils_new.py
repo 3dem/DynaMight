@@ -217,14 +217,12 @@ class FourierImageSmoother(nn.Module):
         self.rad_inds, self.rad_mask = radial_index_mask(
             oversampling * box_size)
         if A == None and B == None:
-            # self.B = torch.nn.Parameter(torch.linspace(
-            #     0.0005 * box_size, 0.001 * box_size, n_classes).to(device),
-            #     requires_grad=True)
+
             self.B = torch.nn.Parameter(torch.linspace(
-                16*box_size, 32*box_size, n_classes).to(device),
+                3, 5, n_classes).to(device),
                 requires_grad=True)
             self.A = torch.nn.Parameter(torch.linspace(
-                0.1, 0.2, n_classes).to(device), requires_grad=True)
+                0.01, 0.02, n_classes).to(device), requires_grad=True)
         else:
             self.B = torch.nn.Parameter(B.to(device), requires_grad=True)
             self.A = torch.nn.Parameter(A.to(device), requires_grad=True)
@@ -233,13 +231,13 @@ class FourierImageSmoother(nn.Module):
 
     def forward(self, ims):
         R = torch.stack(self.n_classes * [self.rad_inds.to(self.device)], 0)
-        # FF = torch.exp(-self.B[:, None, None] ** 2 *
-        #                R) * self.A[:, None, None] ** 2
-        FF = torch.exp(-(1/self.B[:, None, None]) *
-                       R**2) * self.A[:, None, None] ** 2
+        F = torch.exp(-(1/(self.B[:, None, None])**2) *
+                      R**2) * (self.A[:, None, None]/self.B[:, None, None])
+        FF = torch.real(torch.fft.fft2(torch.fft.fftshift(
+            F, dim=[-1, -2]), dim=[-1, -2], norm='ortho'))
         bs = ims.shape[0]
         Filts = torch.stack(bs * [FF], 0)
-        Filts = torch.fft.ifftshift(Filts, dim=[-2, -1])
+        # Filts = torch.fft.ifftshift(Filts, dim=[-2, -1])
         Fims = torch.fft.fft2(torch.fft.fftshift(
             ims, dim=[-2, -1]), norm='ortho')
         if self.n_classes > 1:
@@ -260,14 +258,20 @@ def fourier_crop(img, oversampling):
     return out
 
 
-def radial_index_mask(box_size, ang_pix=None):
-    if ang_pix:
-        x = torch.tensor(box_size * ang_pix * np.linspace(-box_size / 2,
-                                                          box_size / 2, box_size,
-                                                          endpoint=False) / 4 * np.pi)
-    else:
-        x = torch.tensor(
-            np.linspace(-box_size, box_size, box_size, endpoint=False))
+def fourier_crop3(img, oversampling):
+    s = img.shape[-1]
+    img = torch.fft.fftshift(img, [-1, -2, -3])
+    out = img[..., s // 2 - s // (2 * oversampling):s // 2 + s // (2 * oversampling),
+              s // 2 - s // (2 * oversampling):s // 2 + s // (2 * oversampling),
+              s // 2 - s // (2 * oversampling):s // 2 + s // (2 * oversampling)]
+    out = torch.fft.fftshift(out, [-1, -2, -3])
+    return out
+
+
+def radial_index_mask(box_size):
+
+    x = torch.tensor(
+        np.linspace(-box_size, box_size, box_size, endpoint=False))
     X, Y = torch.meshgrid(x, x)
     R = torch.round(torch.sqrt(X ** 2 + Y ** 2))
     Mask = R < (x[-1])
@@ -275,14 +279,10 @@ def radial_index_mask(box_size, ang_pix=None):
     return R.long(), Mask
 
 
-def radial_index_mask3(box_size, ang_pix=None):
-    if ang_pix:
-        x = torch.tensor(box_size * ang_pix * np.linspace(-box_size / 2,
-                                                          box_size / 2, box_size,
-                                                          endpoint=False) / 4 * np.pi)
-    else:
-        x = torch.tensor(
-            np.linspace(-box_size, box_size, box_size, endpoint=False))
+def radial_index_mask3(box_size):
+
+    x = torch.tensor(
+        np.linspace(-box_size, box_size, box_size, endpoint=False))
     X, Y, Z = torch.meshgrid(x, x, x)
     R = torch.round(torch.sqrt(X ** 2 + Y ** 2 + Z ** 2))
     Mask = R < (x[-1])
@@ -340,17 +340,18 @@ class PointsToVolumes(nn.Module):
     Points are spread over 8 nearest voxels by trilinear interpolation.
     """
 
-    def __init__(self, box_size, n_classes):
+    def __init__(self, box_size, n_classes, oversampling):
         super(PointsToVolumes, self).__init__()
         self.box_size = box_size
         self.n_classes = n_classes
+        self.os = oversampling
 
     def forward(self, positions, amplitudes):
         self.batch_size = positions.shape[0]
         device = positions.device
-        p = ((positions + 0.5) * (self.box_size))
+        p = ((positions + 0.5) * (self.box_size*self.os))
         vol = torch.zeros(self.batch_size, self.n_classes,
-                          self.box_size ** 3).to(device)
+                          (self.box_size*self.os) ** 3).to(device)
 
         xyzpoints = p.floor().long()
 
@@ -371,20 +372,20 @@ class PointsToVolumes(nn.Module):
 
                     w = wx * wy * wz
                     if self.batch_size > 1:
-                        valid = ((0 <= x_) * (x_ < self.box_size) * (0 <= y_) * (y_ <
-                                                                                 self.box_size) * (
-                            0 <= z_) * (z_ < self.box_size)).long()
-                        idx = (((z_ * self.box_size + y_) *
-                                self.box_size + x_) * valid).squeeze()
+                        valid = ((0 <= x_) * (x_ < self.os*self.box_size) *
+                                 (0 <= y_) * (y_ < self.os*self.box_size) *
+                                 (0 <= z_) * (z_ < self.os*self.box_size)).long()
+                        idx = ((((z_ * self.os*self.box_size + y_) *
+                               self.box_size*self.os) + x_) * valid).squeeze()
                         idx = torch.stack(self.n_classes * [idx], 1)
                         w = (w * valid.type_as(w)).squeeze()
                         w = torch.stack(self.n_classes * [w], 1)
                     else:
-                        valid = ((0 <= x_) * (x_ < self.box_size) * (0 <= y_) * (y_ <
-                                                                                 self.box_size) * (
-                            0 <= z_) * (z_ < self.box_size)).long()
-                        idx = (((z_ * self.box_size + y_) *
-                                self.box_size + x_) * valid).squeeze(2)
+                        valid = ((0 <= x_) * (x_ < self.os*self.box_size) *
+                                 (0 <= y_) * (y_ < self.box_size*self.os) *
+                                 (0 <= z_) * (z_ < self.box_size*self.os)).long()
+                        idx = ((((z_ * self.box_size*self.os + y_) *
+                               self.box_size*self.os) + x_) * valid).squeeze(2)
                         idx = torch.stack(self.n_classes * [idx], 1)
                         w = (w * valid.type_as(w)).squeeze(2)
                         w = torch.stack(self.n_classes * [w], 1)
@@ -392,7 +393,7 @@ class PointsToVolumes(nn.Module):
                     vol.scatter_add_(2, idx, w * amplitudes)
 
         vol = vol.reshape(self.batch_size, self.n_classes,
-                          self.box_size, self.box_size, self.box_size)
+                          self.os*self.box_size, self.os*self.box_size, self.os*self.box_size)
         return vol
 
 
@@ -1190,7 +1191,7 @@ def reset_all_linear_layer_weights(model: nn.Module) -> nn.Module:
         - https://pytorch.org/docs/stable/generated/torch.nn.Module.html
     """
 
-    @torch.no_grad()
+    @ torch.no_grad()
     def init_weights(m):
         if type(m) == nn.Linear:
             m.reset_parameters()
@@ -1243,8 +1244,8 @@ def bezier_curve(points, nTimes=1000):
        bezier curve defined by the control points.
 
        points should be a list of lists, or list of tuples
-       such as [ [1,1], 
-                 [2,3], 
+       such as [ [1,1],
+                 [2,3],
                  [4,5], ..[Xn, Yn] ]
         nTimes is the number of time steps, defaults to 1000
 
@@ -1334,7 +1335,7 @@ def calculate_grid_oversampling_factor(box_size: int) -> int:
     bilinear interpolation.
     """
     if box_size < 100:
-        grid_oversampling_factor = 3
+        grid_oversampling_factor = 2
     if box_size < 300 and box_size > 99:
         grid_oversampling_factor = 2
     if box_size > 299:

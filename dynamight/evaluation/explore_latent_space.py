@@ -46,7 +46,10 @@ def explore_latent_space(
 
     if refinement_star_file == None:
         refinement_star_file = cp['refinement_directory']
-
+        if refinement_star_file.suffix == '.star':
+            pass
+        else:
+            refinement_star_file = refinement_star_file / 'run_data.star'
     dataframe = starfile.read(refinement_star_file)
     circular_mask_thickness = soft_edge_width
 

@@ -14,6 +14,8 @@ from matplotlib.widgets import LassoSelector, PolygonSelector
 from tqdm import tqdm
 from matplotlib.backends.backend_qt5agg import FigureCanvas
 from dynamight.utils.utils_new import compute_threshold, bezier_curve, make_equidistant
+from matplotlib.path import Path
+import mrcfile
 
 
 class Visualizer:
@@ -158,6 +160,7 @@ class Visualizer:
                                    props=self.line, button=2, useblit=True)
         self.lasso.disconnect_events()
         self.star_nr = 0
+        self.movie_nr = 0
         self.indices = indices
         self.poly = PolygonSelector(ax=self.axes1, onselect=self.get_part_nr, props=self.line,
                                     useblit=True)
@@ -165,6 +168,11 @@ class Visualizer:
         self.output_directory = output_directory
         self.atomic_model = atomic_model
         self.half_set = half_set
+        self.save_movie = widgets.PushButton(value=False, text='save movie')
+        self.save_movie_widget = widgets.Container(widgets=[self.save_movie])
+        self.movie_wi = self.viewer.window.add_dock_widget(
+            self.save_movie_widget, area='bottom')
+        self.save_movie.clicked.connect(self.save_series)
 
     def run(self):
         napari.run()
@@ -197,10 +205,10 @@ class Visualizer:
                 self.latent_closest[0], self.latent_closest[1], c='r')
             self.lat_canv.draw()
         elif selected_label == 'density':
-            h, x, y, p = plt.hist2d(
-                self.z[:, 0].numpy(), self.z[:, 1].numpy(), bins=(50, 50), cmap='hot')
             ex = [self.axes1.dataLim.x0, self.axes1.dataLim.x1, self.axes1.dataLim.y0,
                   self.axes1.dataLim.y1]
+            h, x, y, p = plt.hist2d(
+                self.z[:, 0].numpy(), self.z[:, 1].numpy(), bins=(30, 30), cmap='hot')
             self.axes1.clear()
             # axes1.hist2d(zz[:,0],zz[:,1],bins = (100,100), cmap = 'hot')
             self.axes1.imshow(
@@ -320,11 +328,12 @@ class Visualizer:
 
     def on_select(self, line):
         path = torch.tensor(np.array(line))
-        xval, yval = bezier_curve(path, nTimes=200)
-        path = torch.tensor(np.stack([xval, yval], 1))
+        if self.decoder.latent_dim == 2:
+            xval, yval = bezier_curve(path, nTimes=200)
+            path = torch.tensor(np.stack([xval, yval], 1))
         # n_points, new_points = make_equidistant(xval, yval, 100)
-        new_points = np.stack([xval, yval], 1)
-        path = torch.tensor(new_points)
+            new_points = np.stack([xval, yval], 1)
+            path = torch.tensor(new_points)
         mu = path[0:2].float()
         vols = []
         poss = []
@@ -349,7 +358,7 @@ class Visualizer:
         if self.rep_menu.current_choice == 'volume':
             print('Generating movie with', path.shape[0], 'frames')
             for i in tqdm(range(path.shape[0] // 2)):
-                mu = path[i: i + 2].float()
+                mu = path[2*i: (2*i) + 2].float()
                 with torch.no_grad():
                     V = self.decoder.generate_volume(
                         mu.to(self.device), self.r.to(self.device), self.t.to(self.device))
@@ -393,22 +402,47 @@ class Visualizer:
         )
 
     def save_starfile(self, verts):
+        if (self.output_directory / 'subsets').exists():
+            star_directory = self.output_directory / 'subsets'
+        else:
+            star_directory = self.output_directory / 'subsets'
+            star_directory.mkdir(exist_ok=True, parents=True)
         path = Path(verts)
         new_indices = path.contains_points(self.z)
-        print(self.z[new_indices])
         new_star = self.star_data.copy()
         ninds = np.where(new_indices == True)
         nindsfull = self.indices[ninds[0]]
         new_star['particles'] = self.star_data['particles'].loc[list(
             nindsfull)]
         print('created star file with ', len(ninds[0]), 'particles')
-        starfile.write(new_star, self.output_directory + 'subset_' +
-                       str(self.star_nr) + '_half' + str(self.half_set) + '.star')
+        starfile.write(new_star, star_directory /
+                       ('subset_' + str(self.star_nr) + '_half' + str(self.half_set) + '.star'))
         np.savez(
-            self.output_directory + 'subset_' +
-            str(self.star_nr) + '_indices_' + str(self.half_set) + '.npz',
+            star_directory / ('subset_' +
+                              str(self.star_nr) + '_indices_' + str(self.half_set) + '.npz'),
             nindsfull)
         self.star_nr += 1
         self.poly.disconnect_events()
         self.poly = PolygonSelector(ax=self.axes1, onselect=self.save_starfile, props=self.line,
                                     useblit=True)
+
+    def save_series(self, event):
+        if (self.output_directory / 'movies').exists():
+            movie_directory = self.output_directory / 'movies'
+            current_movie_directory = movie_directory / \
+                ('movie_' + str(self.movie_nr).zfill(2))
+            current_movie_directory.mkdir(exist_ok=True, parents=True)
+        else:
+            movie_directory = self.output_directory / 'movies'
+            movie_directory.mkdir(exist_ok=True, parents=True)
+            current_movie_directory = movie_directory / \
+                ('movie_' + str(self.movie_nr).zfill(2))
+            current_movie_directory.mkdir(exist_ok=True, parents=True)
+
+        V = self.vol_layer.data
+        self.movie_nr += 1
+        for i in range(V.shape[0]):
+            with mrcfile.new(current_movie_directory / ('volume'+str(i).zfill(3)+'.mrc'), overwrite=True) as mrc:
+                mrc.set_data(V[i])
+                mrc.voxel_size = self.decoder.ang_pix
+        self.save_movie.null_value

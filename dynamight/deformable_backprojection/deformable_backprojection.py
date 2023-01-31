@@ -9,7 +9,7 @@ from scipy.spatial import KDTree
 from dynamight.utils.utils_new import field2bild, FSC
 from dynamight.deformable_backprojection.backprojection_utils import \
     get_ess_grid, DeformationInterpolator, RotateVolume, \
-    generate_smooth_mask_and_grids, generate_smooth_mask_from_consensus, get_latent_space_and_indices, get_latent_space_tiling
+    generate_smooth_mask_and_grids, generate_smooth_mask_from_consensus, get_latent_space_and_indices, get_latent_space_tiling, backproject_images_from_tile
 from dynamight.data.handlers.particle_image_preprocessor import \
     ParticleImagePreprocessor
 from tqdm import tqdm
@@ -248,124 +248,41 @@ def deformable_backprojection(
         r = torch.zeros(2, 3)
         t = torch.zeros(2, 2)
 
-        if len(tile_indices) > ignore_number:
-            with torch.no_grad():
-                _, n_pos, deformation = decoder_half1(z_tile.to(device),
-                                                      r.to(device),
-                                                      t.to(device),
-                                                      supersmallgrid.to(
-                                                          device),
-                                                      )
-                tile_deformation = inv_half1(z_tile, torch.stack(
-                    2 * [smallgrid.to(device)], 0))
+        Vy, CTFy = backproject_images_from_tile(
+            z_tile=z_tile,
+            decoder=decoder_half1,
+            inverse_model=inv_half1,
+            grid=smallgrid,
+            interpolate_field=fwd_int,
+            rotation=rotation,
+            data_loader=current_data_loader,
+            poses=poses,
+            data_preprocessor=data_preprocessor
+        )
 
-                disp = fwd_int.compute_field(tile_deformation[0])
-                disp0 = disp[0, ...]
-                disp1 = disp[1, ...]
-                disp2 = disp[2, ...]
-                disp = torch.stack(
-                    [disp0.squeeze(), disp1.squeeze(), disp2.squeeze()], 3)
-                dis_grid = disp[None, :, :, :]
-                # if i % 200 == 0:
-                #     im_deformation = inv_half1(z_tile, n_pos)
-                #     field2bild(n_pos[0], im_deformation[0],
-                #                str(output_directory) + 'Ninversefield' + str(
-                #                    i).zfill(3),
-                #                box_size, ang_pix)
-                #     field2bild(supersmallgrid.to(device), n_pos[0],
-                #                str(output_directory) + 'Nforwardfield' + str(
-                #                    i).zfill(3),
-                #                box_size, ang_pix)
-                #     field2bild(supersmallgrid.to(device), im_deformation[0],
-                #                str(output_directory) + 'Nfwdbwdfield' + str(i).zfill(
-                #                    3), box_size,
-                #                ang_pix)
+        V += (1 / len(dataset)) * Vy.squeeze()
+        CTF += (1 / len(dataset)) * torch.real(
+            torch.sum(torch.fft.fftn(torch.fft.fftshift(CTFy.unsqueeze(1), dim=[-1, -2, -3]),
+                                     dim=[-1, -2, -3]) ** 2,
+                      0).squeeze())
+        i += 1
 
-                bp_imgs += len(tile_indices)
+        if i % 50 == 0:
+            try:
+                VV = V[:, :, :] * rec_mask
+            except:
+                VV = V[:, :, :]
+            VV = torch.fft.fftn(torch.fft.fftshift(
+                VV, dim=[-1, -2, -3]), dim=[-1, -2, -3])
 
-        else:
-            om_imgs += len(tile_indices)
-        if len(tile_indices) > ignore_number:
-            i = i + 1
-            if i % 50 == 0:
-                try:
-                    VV = V[:, :, :] * rec_mask
-                except:
-                    VV = V[:, :, :]
-                VV = torch.fft.fftn(torch.fft.fftshift(
-                    VV, dim=[-1, -2, -3]), dim=[-1, -2, -3])
-
-                VV2 = torch.fft.fftshift(torch.real(
-                    torch.fft.ifftn(VV / torch.maximum(CTF,
-                                                       lam_thres * torch.ones_like(
-                                                           CTF)),
-                                    dim=[-1, -2, -3])), dim=[-1, -2, -3])
-                nr = i//50
-                with mrcfile.new(backprojection_directory / ('reconstruction_half1_' + f'{nr:03}.mrc'), overwrite=True) as mrc:
-                    mrc.set_data((VV2 / torch.max(VV2)).float().cpu().numpy())
-
-            with torch.no_grad():
-                for batch_ndx, sample in enumerate(current_data_loader):
-                    r, y, ctf = sample["rotation"], sample["image"], sample[
-                        "ctf"]
-                    idx = sample['idx']
-                    r, t = poses(idx)
-                    batch_size = y.shape[0]
-                    ctfs_l = torch.nn.functional.pad(ctf, (
-                        box_size // 2, box_size // 2, box_size // 2,
-                        box_size // 2, 0, 0)).to(device)
-                    ctfs = torch.fft.fftshift(ctf, dim=[-1, -2])
-                    y_in = data_preprocessor.apply_square_mask(y)
-                    y_in = data_preprocessor.apply_translation(y_in, -t[:, 0],
-                                                               -t[:, 1])
-                    y_in = data_preprocessor.apply_circular_mask(y_in)
-                    y_in, r, t, ctfs, ctf = y_in.to(device), r.to(device), t.to(
-                        device), ctfs.to(
-                        device), ctf.to(device)
-                    if use_ctf:
-                        y = torch.fft.fft2(y_in, dim=[-1, -2])
-                        y = y * ctfs
-                        yr = torch.real(
-                            torch.fft.ifft2(y, dim=[-1, -2])).unsqueeze(1)
-                    else:
-                        yr = y_in.unsqueeze(1)
-
-                    ctfr2_l = torch.fft.fftshift(torch.real(
-                        torch.fft.ifft2(
-                            torch.fft.fftshift(ctfs_l, dim=[-1, -2]),
-                            dim=[-1, -2], )).unsqueeze(1), dim=[-1, -2])
-                    ctfr2_lc = torch.nn.functional.avg_pool2d(ctfr2_l,
-                                                              kernel_size=3,
-                                                              stride=2,
-                                                              padding=1)
-                    CTFy = ctfr2_lc.expand(batch_size, box_size, box_size,
-                                           box_size)
-                    CTFy = torch.nn.functional.pad(CTFy,
-                                                   (0, 1, 0, 1, 0, 1, 0, 0))
-                    CTFy = rotation(CTFy.unsqueeze(1), r).squeeze()
-
-                    if len(CTFy.shape) < 4:
-                        CTFy = CTFy.unsqueeze(0)
-
-                    CTFy = CTFy[:, :-1, :-1, :-1]
-                    CTF += (1 / len(dataset)) * torch.real(
-                        torch.sum(torch.fft.fftn(torch.fft.fftshift(CTFy.unsqueeze(1), dim=[-1, -2, -3]),
-                                                 dim=[-1, -2, -3]) ** 2,
-                                  0).squeeze())
-
-                    Vy = yr.expand(batch_size, box_size, box_size, box_size)
-                    Vy = torch.nn.functional.pad(Vy, (0, 1, 0, 1, 0, 1, 0, 0))
-                    Vy = rotation(Vy.unsqueeze(1), r).squeeze()
-                    if len(Vy.shape) < 4:
-                        Vy = Vy.unsqueeze(0)
-                    if len(Vy.shape) < 4:
-                        Vy = Vy.unsqueeze(0)
-
-                    Vy = torch.sum(Vy, 0)
-                    Vy = F.grid_sample(input=Vy.unsqueeze(0).unsqueeze(0),
-                                       grid=dis_grid.to(device),
-                                       mode='bilinear', align_corners=False)
-                    V += (1 / len(dataset)) * Vy.squeeze()
+            VV2 = torch.fft.fftshift(torch.real(
+                torch.fft.ifftn(VV / torch.maximum(CTF,
+                                                   lam_thres * torch.ones_like(
+                                                       CTF)),
+                                dim=[-1, -2, -3])), dim=[-1, -2, -3])
+            nr = i//50
+            with mrcfile.new(backprojection_directory / ('reconstruction_half1_' + f'{nr:03}.mrc'), overwrite=True) as mrc:
+                mrc.set_data((VV2 / torch.max(VV2)).float().cpu().numpy())
 
     try:
         V = V * rec_mask

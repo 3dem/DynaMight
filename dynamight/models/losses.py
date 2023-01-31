@@ -13,13 +13,14 @@ class GeometricLoss:
         neighbour_loss_weight: float = 0.01,
         repulsion_weight: float = 0.01,
         outlier_weight: float = 1,
-        deformation_regularity_weight: float = 1,
+        deformation_regularity_weight: float = 0.1,
     ):
         self.mode = mode
         self.neighbour_loss_weight = neighbour_loss_weight
         self.repulsion_weight = repulsion_weight
         self.outlier_weight = outlier_weight
         self.deformation_regularity_weight = deformation_regularity_weight
+        print('mode is:', self.mode)
 
     def __call__(
         self,
@@ -30,15 +31,17 @@ class GeometricLoss:
         radius_graph: torch.Tensor,
         box_size: int,
         ang_pix: float,
+        n_active_points: int,
     ) -> float:
+
         positions_angstroms = deformed_positions * box_size * ang_pix
         deformation_regularity_loss = self.calculate_deformation_regularity_loss(
             positions=positions_angstroms,
             radius_graph=radius_graph,
-            consensus_pairwise_distances=consensus_pairwise_distances
+            consensus_pairwise_distances=consensus_pairwise_distances,
+            n_active_points=n_active_points
         )
         loss = self.deformation_regularity_weight * deformation_regularity_loss
-
         if self.mode != RegularizationMode.MODEL:
             neighbour_loss = self.calculate_neighbour_loss(
                 positions=positions_angstroms,
@@ -61,6 +64,7 @@ class GeometricLoss:
                 + self.repulsion_weight * repulsion_loss
                 + self.outlier_weight * outlier_loss
             )
+
         return loss
 
     def calculate_neighbour_loss(
@@ -114,10 +118,10 @@ class GeometricLoss:
         distances = torch.pow(torch.sum(differences ** 2, dim=-1) + 1e7, 0.5)
 
         # set cutoff distance for repulsion penalty
-        if mean_neighbour_distance < 0.5:
-            cutoff_distance = 0.5
-        else:
-            cutoff_distance = mean_neighbour_distance / 3
+        # if mean_neighbour_distance < 0.5:
+        #     cutoff_distance = 0.5
+        # else:
+        cutoff_distance = 4*mean_neighbour_distance / 5
 
         # add quadratic penalty for distance being greater than cutoff
         x1 = torch.clamp(distances, max=cutoff_distance)
@@ -143,6 +147,7 @@ class GeometricLoss:
         positions: torch.Tensor,
         radius_graph: torch.Tensor,
         consensus_pairwise_distances: torch.Tensor,
+        n_active_points: int
     ):
         """Average difference in pairwise distance between consensus and updated model."""
         differences = positions[:, radius_graph[0]] - \
@@ -150,7 +155,7 @@ class GeometricLoss:
         distances = torch.pow(torch.sum(differences ** 2, dim=-1), 0.5)
         difference_in_pairwise_distances = (
             distances - consensus_pairwise_distances) ** 2
-        return torch.mean(difference_in_pairwise_distances)
+        return torch.sum(difference_in_pairwise_distances)/n_active_points
 
 
 def _distance_activation(pairwise_distances, mean_neighbour_distance):
@@ -164,7 +169,7 @@ def _distance_activation(pairwise_distances, mean_neighbour_distance):
     return x2
 
 
-def _neighbour_activation(neighbours_per_point, minimum: float = 1, maximum: float = 3):
+def _neighbour_activation(neighbours_per_point, minimum: float = 1.5, maximum: float = 3):
     """Quadratic penalisation on number of neighbours outside range."""
     x1 = torch.clamp(neighbours_per_point, max=minimum)
     x2 = torch.clamp(neighbours_per_point, min=maximum)
