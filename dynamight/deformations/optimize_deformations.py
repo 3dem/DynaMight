@@ -67,7 +67,7 @@ def optimize_deformations(
     n_linear_layers: int = 8,
     n_neurons_per_layer: int = 32,
     n_warmup_epochs: int = 3,
-    weight_decay: float = 1e-7,
+    weight_decay: float = 0,
     consensus_update_rate: float = 1,
     consensus_update_decay: float = 0.8,
     consensus_update_pooled_particles: int = 100,
@@ -235,7 +235,7 @@ def optimize_deformations(
             else:
                 Ivols = Ivol
             if initial_threshold == None:
-                initial_threshold = compute_threshold(Ivol, percentage=99)
+                initial_threshold = compute_threshold(Ivol, percentage=98)
             print('Setting threshold for the initialization to:', initial_threshold)
             initial_points = initialize_points_from_volume(
                 Ivols.movedim(0, 2).movedim(0, 1),
@@ -279,6 +279,12 @@ def optimize_deformations(
 
         for decoder in (decoder_half1, decoder_half2):
             decoder.initialize_physical_parameters(reference_volume=Ivol)
+            summ.add_figure("Data/cons_points_z_half1",
+                            tensor_scatter(decoder_half1.model_positions[:, 0],
+                                           decoder_half1.model_positions[:, 1], c=torch.ones(decoder_half1.model_positions.shape[0]), s=3), -1)
+            summ.add_figure("Data/cons_points_z_half2",
+                            tensor_scatter(decoder_half2.model_positions[:, 0],
+                                           decoder_half2.model_positions[:, 1], c=torch.ones(decoder_half2.model_positions.shape[0]), s=3), -1)
 
         if mask_file:
             with mrcfile.open(mask_file) as mrc:
@@ -308,9 +314,9 @@ def optimize_deformations(
     dec_half2_optimizer = torch.optim.Adam(dec_half2_params, lr=LR)
 
     physical_parameter_optimizer_half1 = torch.optim.Adam(
-        decoder_half1.physical_parameters, lr=posLR)
+        [decoder_half1.image_smoother.A], lr=100*posLR)
     physical_parameter_optimizer_half2 = torch.optim.Adam(
-        decoder_half2.physical_parameters, lr=posLR)
+        [decoder_half2.image_smoother.A], lr=100*posLR)
 
     mean_dist_half1 = torch.zeros(n_points)
     mean_dist_half2 = torch.zeros(n_points)
@@ -406,6 +412,10 @@ def optimize_deformations(
             )
             dec_half1_optimizer = torch.optim.Adam(dec_half1_params, lr=LR)
             dec_half2_optimizer = torch.optim.Adam(dec_half2_params, lr=LR)
+            physical_parameter_optimizer_half1 = torch.optim.Adam(
+                decoder_half1.physical_parameters, lr=0.1*posLR)
+            physical_parameter_optimizer_half2 = torch.optim.Adam(
+                decoder_half2.physical_parameters, lr=0.1*posLR)
 
         # initialise running losses
         running_recloss_half1 = 0
@@ -435,12 +445,6 @@ def optimize_deformations(
         if epoch < n_warmup_epochs:
             decoder_half1.warmup = True
             decoder_half2.warmup = True
-            decoder_half1.amp.requires_grad = False
-            decoder_half2.amp.requires_grad = False
-            decoder_half1.image_smoother.B.requires_grad = False
-            decoder_half2.image_smoother.B.requires_grad = False
-            decoder_half1.model_positions.requires_grad = False
-            decoder_half2.model_positions.requires_grad = False
 
         else:
             decoder_half1.warmup = False
@@ -478,7 +482,7 @@ def optimize_deformations(
             )
             print('current:', current)
             lambda_regularization_half1 = regularization_factor_h1 * \
-                (0.5 * previous + 0.5 * current)
+                (0.9 * previous + 0.1 * current)
 
             previous = lambda_regularization_half2
             print('previous:', previous)
@@ -497,7 +501,7 @@ def optimize_deformations(
             )
             print('current:', current)
             lambda_regularization_half2 = regularization_factor_h2 * \
-                (0.5 * previous + 0.5 * current)
+                (0.9 * previous + 0.1 * current)
 
         print('new regularization parameter for half 1 is ',
               lambda_regularization_half1)
@@ -759,7 +763,7 @@ def optimize_deformations(
                         decoder_half2.image_smoother.A[1].detach().cpu(), epoch)
 
                 summ.add_figure("Data/FSC_half_maps",
-                                tensor_plot(fourier_shell_correlation), epoch)
+                                tensor_plot(fourier_shell_correlation, fix=[0, 1]), epoch)
                 summ.add_figure("Loss/amplitudes_h1",
                                 tensor_plot(decoder_half1.amp[0].cpu()), epoch)
                 summ.add_figure("Loss/amplitudes_h2",

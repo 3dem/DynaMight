@@ -219,10 +219,10 @@ class FourierImageSmoother(nn.Module):
         if A == None and B == None:
 
             self.B = torch.nn.Parameter(torch.linspace(
-                3, 5, n_classes).to(device),
+                2, 3, n_classes).to(device),
                 requires_grad=True)
             self.A = torch.nn.Parameter(torch.linspace(
-                0.01, 0.02, n_classes).to(device), requires_grad=True)
+                0.003, 0.005, n_classes).to(device), requires_grad=True)
         else:
             self.B = torch.nn.Parameter(B.to(device), requires_grad=True)
             self.A = torch.nn.Parameter(A.to(device), requires_grad=True)
@@ -232,7 +232,7 @@ class FourierImageSmoother(nn.Module):
     def forward(self, ims):
         R = torch.stack(self.n_classes * [self.rad_inds.to(self.device)], 0)
         F = torch.exp(-(1/(self.B[:, None, None])**2) *
-                      R**2) * (self.A[:, None, None]/self.B[:, None, None])
+                      R**2) * (self.A[0, None, None]**2)  # /self.B[:, None, None])
         FF = torch.real(torch.fft.fft2(torch.fft.fftshift(
             F, dim=[-1, -2]), dim=[-1, -2], norm='ortho'))
         bs = ims.shape[0]
@@ -467,7 +467,7 @@ def tensor_imshow(tensor, cmap='viridis'):
     return fig
 
 
-def tensor_plot(tensor):
+def tensor_plot(tensor, fix=False):
     x = tensor
     if type(x).__module__ == 'torch':
         x = x.detach().data.cpu().numpy()
@@ -475,6 +475,8 @@ def tensor_plot(tensor):
     matplotlib.use('pdf')
     fig, ax = plt.subplots(figsize=(5, 5))
     ax.plot(x)
+    if fix != False:
+        ax.set_ylim([fix[0], fix[1]])
 
     matplotlib.use(backend)
 

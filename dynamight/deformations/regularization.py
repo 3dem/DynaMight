@@ -41,8 +41,8 @@ def calibrate_regularization_parameter(
     lambda: float
     """
 
-    if lambda_regularization == 0:  # Fix for first epoch after warmup
-        lambda_regularization = 1
+    # if lambda_regularization == 0:  # Fix for first epoch after warmup
+    #    lambda_regularization = 1
 
     n_particles = round(len(dataset) * (subset_percentage / 100))
     particle_idx = torch.randint(0, len(dataset), (n_particles,))
@@ -160,7 +160,7 @@ def _compute_geometry_norm(
         neighbour_loss_weight=0.01,
         repulsion_weight=0.01,
         outlier_weight=1,
-        deformation_regularity_weight=1,
+        deformation_regularity_weight=0.1,
     )
     for batch_ndx, sample in enumerate(dataloader):
         # zero gradients
@@ -195,6 +195,7 @@ def _compute_geometry_norm(
         geo_loss = geometric_loss(
             deformed_positions=new_points,
             mean_neighbour_distance=decoder.mean_neighbour_distance,
+            mean_graph_distance=decoder.mean_graph_distance,
             consensus_pairwise_distances=decoder.model_distances,
             knn=decoder.neighbour_graph,
             radius_graph=decoder.radius_graph,
@@ -218,4 +219,5 @@ def _compute_geometry_norm(
                 geometry_norm += total_norm ** 0.5
             except:
                 geometry_norm = 1
+
     return geometry_norm

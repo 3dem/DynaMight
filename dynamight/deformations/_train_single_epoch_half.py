@@ -103,6 +103,7 @@ def train_epoch(
             geo_loss = geometric_loss(
                 deformed_positions=new_points,
                 mean_neighbour_distance=decoder.mean_neighbour_distance,
+                mean_graph_distance=decoder.mean_graph_distance,
                 consensus_pairwise_distances=decoder.model_distances,
                 knn=decoder.neighbour_graph,
                 radius_graph=decoder.radius_graph,
