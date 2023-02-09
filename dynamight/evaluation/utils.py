@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from tsnecuda import TSNE
-from sklearn.decomposition import PCA
+from sklearn.decomposition import PCA, FastICA
 import umap
 import torch.nn.functional as F
 from tqdm import tqdm
@@ -19,6 +19,9 @@ def compute_dimensionality_reduction(
     elif method == 'PCA':
         embedded_latent_space = PCA(n_components=2).fit_transform(
             latent_space.cpu().numpy())
+    elif method == 'ICA':
+        embedded_latent_space = FastICA(
+            n_components=2).fit_transform(latent_space.cpu().numpy())
     return embedded_latent_space
 
 

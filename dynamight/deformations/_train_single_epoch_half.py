@@ -40,10 +40,10 @@ def train_epoch(
 
     geometric_loss = GeometricLoss(
         mode=regularization_mode,
-        neighbour_loss_weight=0.01,
+        neighbour_loss_weight=0.0,
         repulsion_weight=0.01,
         outlier_weight=1,
-        deformation_regularity_weight=0.1,
+        deformation_regularity_weight=1,
     )
 
     for batch_ndx, sample in tqdm(enumerate(dataloader)):
@@ -109,7 +109,7 @@ def train_epoch(
                 radius_graph=decoder.radius_graph,
                 box_size=decoder.box_size,
                 ang_pix=decoder.ang_pix,
-                n_active_points=decoder.n_active_points
+                active_indices=decoder.active_indices
             )
 
         if epoch < n_warmup_epochs:

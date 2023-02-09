@@ -278,18 +278,21 @@ class Visualizer:
             self.lat_canv.draw_idle()
         elif selected_label == 'trajectory':
             self.fig.canvas.mpl_disconnect(self.cid)
+            self.poly.disconnect_events()
             self.lasso = LassoSelector(ax=self.axes1, onselect=self.on_select,
                                        props=self.line, button=2, useblit=True)
 
         elif selected_label == 'particle number':
             self.fig.canvas.mpl_disconnect(self.cid)
+            self.poly.disconnect_events()
             self.lasso.disconnect_events()
-            self.lat_canv.draw_idle()
             self.poly = PolygonSelector(ax=self.axes1, onselect=self.get_part_nr, props=self.line,
                                         useblit=True)
+            self.lat_canv.draw_idle()
 
         elif selected_label == 'starfile':
             self.fig.canvas.mpl_disconnect(self.cid)
+            self.poly.disconnect_events()
             self.lasso.disconnect_events()
             self.poly = PolygonSelector(ax=self.axes1, onselect=self.save_starfile, props=self.line,
                                         useblit=True)
@@ -345,7 +348,7 @@ class Visualizer:
                 inst_ind = torch.argmin(dist, 0)
                 ppath.append(self.latent_space[inst_ind])
             t = torch.stack(self.decoder.latent_dim *
-                            [torch.tensor(np.linspace(0, 1, 30, endpoint=False))], 1).to(self.device)
+                            [torch.tensor(np.linspace(0, 1, 20, endpoint=False))], 1).to(self.device)
             ppath = torch.stack(ppath, 0)
             path_len = ppath.shape[0]
 

@@ -157,10 +157,10 @@ def _compute_geometry_norm(
     geometry_norm = 0
     geometric_loss = GeometricLoss(
         mode=mode,
-        neighbour_loss_weight=0.01,
+        neighbour_loss_weight=0.0,
         repulsion_weight=0.01,
         outlier_weight=1,
-        deformation_regularity_weight=0.1,
+        deformation_regularity_weight=1,
     )
     for batch_ndx, sample in enumerate(dataloader):
         # zero gradients
@@ -201,19 +201,20 @@ def _compute_geometry_norm(
             radius_graph=decoder.radius_graph,
             box_size=decoder.box_size,
             ang_pix=decoder.ang_pix,
-            n_active_points=decoder.n_active_points
+            active_indices=decoder.active_indices
         )
         try:
             geo_loss.backward()
         except:
             pass
         # compute norm of gradients
+
         with torch.no_grad():
             try:
                 total_norm = 0
 
                 for p in decoder.parameters():
-                    if p.requires_grad == True and p != None:
+                    if p.requires_grad == True and p.grad != None:
                         param_norm = p.grad.detach().data.norm(2)
                         total_norm += param_norm.item() ** 2
                 geometry_norm += total_norm ** 0.5

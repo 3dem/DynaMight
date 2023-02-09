@@ -32,15 +32,20 @@ class GeometricLoss:
         radius_graph: torch.Tensor,
         box_size: int,
         ang_pix: float,
-        n_active_points: int,
+        active_indices: torch.Tensor,
     ) -> float:
 
-        positions_angstroms = deformed_positions * box_size * ang_pix
+        # if len(active_indices) > 0:
+        #    positions_angstroms = deformed_positions[:, active_indices, :] * \
+        #        box_size * ang_pix
+        # else:
+        positions_angstroms = deformed_positions * \
+            box_size * ang_pix
         deformation_regularity_loss = self.calculate_deformation_regularity_loss(
             positions=positions_angstroms,
             radius_graph=radius_graph,
             consensus_pairwise_distances=consensus_pairwise_distances,
-            n_active_points=n_active_points
+            active_indices=active_indices
         )
         loss = self.deformation_regularity_weight * deformation_regularity_loss
         if self.mode != RegularizationMode.MODEL:
@@ -81,7 +86,7 @@ class GeometricLoss:
         radius_graph: torch.Tensor,
         mean_neighbour_distance: float
     ):
-        """Loss term enforcing optimal local clustering of points.
+        """Loss term enforcing distribution of points.
 
         This adds a quadratic penalty on having a number of neighbours less than 1 or
         greater than 3 for each point.
@@ -156,7 +161,7 @@ class GeometricLoss:
         positions: torch.Tensor,
         radius_graph: torch.Tensor,
         consensus_pairwise_distances: torch.Tensor,
-        n_active_points: int
+        active_indices: torch.Tensor
     ):
         """Average difference in pairwise distance between consensus and updated model."""
         differences = positions[:, radius_graph[0]] - \

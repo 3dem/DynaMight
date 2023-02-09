@@ -1,3 +1,11 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Feb  8 11:04:24 2023
+
+@author: schwab
+"""
+
 from pathlib import Path
 from typing import Optional
 import mrcfile
@@ -9,7 +17,7 @@ from scipy.spatial import KDTree
 from dynamight.utils.utils_new import field2bild, FSC
 from dynamight.deformable_backprojection.backprojection_utils import \
     get_ess_grid, DeformationInterpolator, RotateVolume, \
-    generate_smooth_mask_and_grids, generate_smooth_mask_from_consensus, get_latent_space_and_indices, get_latent_space_tiling, backproject_images_from_tile
+    generate_smooth_mask_and_grids, generate_smooth_mask_from_consensus, get_latent_space_and_indices, get_latent_space_tiling, backproject_images_from_tile, backproject_single_image
 from dynamight.data.handlers.particle_image_preprocessor import \
     ParticleImagePreprocessor
 from tqdm import tqdm
@@ -20,7 +28,7 @@ from .._cli import cli
 
 
 @cli.command()
-def deformable_backprojection(
+def deformable_backprojection_single(
     output_directory: Path,
     mask_file: Optional[Path] = None,
     refinement_star_file: Optional[Path] = None,
@@ -31,15 +39,11 @@ def deformable_backprojection(
     batch_size: int = Option(24),
     preload_images: bool = Option(False),
     #pooling_fraction: Optional[float] = Option(0.05),
-    #pooling_multiplier: Optional[float] = Option(3),
-    ignore_number: int = Option(0),
-    latent_sampling: int = Option(100),
     particle_diameter: Optional[float] = Option(None),
     mask_soft_edge_width: int = Option(20),
-    data_loader_threads: int = Option(4),
+    data_loader_threads: int = Option(8),
     downsample: int = Option(2),
-    do_deformations: bool = Option(True),
-    mask_reconstruction: bool = Option(True)
+    mask_reconstruction: bool = Option(False)
 ):
 
     # To do:
@@ -61,9 +65,6 @@ def deformable_backprojection(
 
     if refinement_star_file == None:
         refinement_star_file = cp_vae['refinement_directory']
-
-    if do_deformations is False:
-        latent_sampling = 1
 
     encoder_half1 = cp_vae['encoder_half1']
     encoder_half2 = cp_vae['encoder_half2']
@@ -188,20 +189,8 @@ def deformable_backprojection(
                                                                       device
                                                                       )
 
-    print(latent_space.shape)
-    xx = get_latent_space_tiling(latent_space, latent_sampling)
-
     latent_space_half1 = latent_space[latent_indices_half1]
     latent_space_half2 = latent_space[latent_indices_half2]
-
-    XY = torch.meshgrid(xx)
-    gxy = torch.stack([X.ravel() for X in XY], 1)
-
-    tree = KDTree(gxy.cpu().numpy())
-    (dists_half1, latent_points_half1) = tree.query(
-        latent_space_half1.cpu().numpy(), p=1)
-    (dists_half2, latent_points_half2) = tree.query(
-        latent_space_half2.cpu().numpy(), p=1)
 
     lam_thres = box_size ** 3 / 250 ** 3
 
@@ -232,46 +221,37 @@ def deformable_backprojection(
 
     print('start deformable_backprojection of half 1')
 
-    print('computing relevant tiles')
-    for j in range(gxy.shape[0]):
-        tile_indices = latent_indices_half1[latent_points_half1 == j]
-        if len(tile_indices) > 0:
-            his.append(len(tile_indices))
-            rel_inds.append(j)
-    # plt.hist(his,bins = 100)
-    # plt.show()
-    print(np.sum(np.array(his) == 1), 'tiles with single particles')
-    print('tile with the most images has ', np.max(np.array(his)), 'particles')
+    current_data = torch.utils.data.Subset(dataset, latent_indices_half1)
+    current_data_loader = DataLoader(
+        dataset=current_data,
+        batch_size=1,
+        num_workers=8,
+        shuffle=False,
+        pin_memory=False
+    )
+    for batch_ndx, sample in enumerate(tqdm(current_data_loader)):
+        r, y, ctf = sample["rotation"], sample["image"], sample[
+            "ctf"]
+        idx = sample['idx']
 
-    for j in tqdm(rel_inds):
-        tile_indices = latent_indices_half1[latent_points_half1 == j]
-        current_data = torch.utils.data.Subset(dataset, tile_indices)
-        current_data_loader = DataLoader(
-            dataset=current_data,
-            batch_size=8,
-            num_workers=8,
-            shuffle=False,
-            pin_memory=False
-        )
-        z_tile = torch.stack(2 * [gxy[j]], 0).to(device)
-        r = torch.zeros(2, 3)
-        t = torch.zeros(2, 2)
+        z_image = latent_space[idx]
 
-        Vy, CTFy = backproject_images_from_tile(
-            z_tile=z_tile,
+        Vol, Filter = backproject_single_image(
+            z_image=z_image,
             decoder=decoder_half1,
             inverse_model=inv_half1,
             grid=smallgrid,
             interpolate_field=fwd_int,
             rotation=rotation,
-            data_loader=current_data_loader,
+            idx=idx,
             poses=poses,
+            y=y,
+            ctf=ctf,
             data_preprocessor=data_preprocessor,
-            do_deformations=do_deformations
-        )
+            use_ctf=True,)
 
-        V += (1 / len(dataset)) * Vy.squeeze()
-        CTF += (1 / len(dataset)) * CTFy
+        V += (1 / len(dataset)) * Vol.squeeze()
+        CTF += (1 / len(dataset)) * Filter.squeeze()
         i += 1
 
         if i % 50 == 0:
@@ -290,6 +270,7 @@ def deformable_backprojection(
             nr = i//50
             with mrcfile.new(backprojection_directory / ('reconstruction_half1_' + f'{nr:03}.mrc'), overwrite=True) as mrc:
                 mrc.set_data((VV2 / torch.max(VV2)).float().cpu().numpy())
+                mrc.voxel_size = decoder_half1.ang_pix
 
     try:
         V = V * rec_mask
@@ -303,6 +284,7 @@ def deformable_backprojection(
 
     with mrcfile.new(backprojection_directory / 'map_half1.mrc', overwrite=True) as mrc:
         mrc.set_data((V / torch.max(V)).float().detach().cpu().numpy())
+        mrc.voxel_size = decoder_half1.ang_pix
 
     del V, CTF
     V = torch.zeros(box_size, box_size, box_size).to(device)
@@ -312,46 +294,37 @@ def deformable_backprojection(
     rel_inds = []
 
     print('start deformable_backprojection of half 2')
-    print('computing relevant tiles')
-    for j in range(gxy.shape[0]):
-        tile_indices = latent_indices_half2[latent_points_half2 == j]
-        if len(tile_indices) > 0:
-            his.append(len(tile_indices))
-            rel_inds.append(j)
-    # plt.hist(his,bins = 100)
-    # plt.show()
-    print(np.sum(np.array(his) == 1), 'tiles with single particles')
-    print('tile with the most images has ', np.max(np.array(his)), 'particles')
+    current_data = torch.utils.data.Subset(dataset, latent_indices_half2)
+    current_data_loader = DataLoader(
+        dataset=current_data,
+        batch_size=1,
+        num_workers=8,
+        shuffle=False,
+        pin_memory=False
+    )
+    for batch_ndx, sample in enumerate(tqdm(current_data_loader)):
+        r, y, ctf = sample["rotation"], sample["image"], sample[
+            "ctf"]
+        idx = sample['idx']
 
-    for j in tqdm(rel_inds):
-        tile_indices = latent_indices_half2[latent_points_half2 == j]
-        current_data = torch.utils.data.Subset(dataset, tile_indices)
-        current_data_loader = DataLoader(
-            dataset=current_data,
-            batch_size=8,
-            num_workers=8,
-            shuffle=False,
-            pin_memory=False
-        )
-        z_tile = torch.stack(2 * [gxy[j]], 0).to(device)
-        r = torch.zeros(2, 3)
-        t = torch.zeros(2, 2)
+        z_image = latent_space[idx]
 
-        Vy, CTFy = backproject_images_from_tile(
-            z_tile=z_tile,
+        Vol, Filter = backproject_single_image(
+            z_image=z_image,
             decoder=decoder_half2,
             inverse_model=inv_half2,
             grid=smallgrid,
             interpolate_field=fwd_int,
             rotation=rotation,
-            data_loader=current_data_loader,
+            idx=idx,
             poses=poses,
+            y=y,
+            ctf=ctf,
             data_preprocessor=data_preprocessor,
-            do_deformations=do_deformations
-        )
+            use_ctf=True,)
 
-        V += (1 / len(dataset)) * Vy.squeeze()
-        CTF += (1 / len(dataset)) * CTFy
+        V += (1 / len(dataset)) * Vol.squeeze()
+        CTF += (1 / len(dataset)) * Filter.squeeze()
         i += 1
 
         if i % 50 == 0:
@@ -370,6 +343,7 @@ def deformable_backprojection(
             nr = i//50
             with mrcfile.new(backprojection_directory / ('reconstruction_half2_' + f'{nr:03}.mrc'), overwrite=True) as mrc:
                 mrc.set_data((VV2 / torch.max(VV2)).float().cpu().numpy())
+                mrc.voxel_size = decoder_half2.ang_pix
 
     try:
         V = V * rec_mask
@@ -383,7 +357,7 @@ def deformable_backprojection(
 
     with mrcfile.new(backprojection_directory / 'map_half2.mrc', overwrite=True) as mrc:
         mrc.set_data((V / torch.max(V)).float().detach().cpu().numpy())
-
+        mrc.voxel_size = decoder_half2.ang_pix
     del V, CTF
 
     with mrcfile.open(backprojection_directory / 'map_half1.mrc') as mrc:

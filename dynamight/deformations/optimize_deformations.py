@@ -235,7 +235,7 @@ def optimize_deformations(
             else:
                 Ivols = Ivol
             if initial_threshold == None:
-                initial_threshold = compute_threshold(Ivol, percentage=98)
+                initial_threshold = compute_threshold(Ivol, percentage=99)
             print('Setting threshold for the initialization to:', initial_threshold)
             initial_points = initialize_points_from_volume(
                 Ivols.movedim(0, 2).movedim(0, 1),
@@ -588,6 +588,14 @@ def optimize_deformations(
                 old_loss_half2 = losses_half2['reconstruction_loss']
                 nosub_ind_h2 = 0
 
+            if consensus_update_rate_h1 == 0:
+                regularization_factor_h1 = np.minimum(
+                    regularization_factor_h1 + 1/100, 0.5)
+
+            if consensus_update_rate_h2 == 0:
+                regularization_factor_h2 = np.minimum(
+                    regularization_factor_h2 + 1/100, 0.5)
+
             if losses_half1['reconstruction_loss'] > (old_loss_half1+old2_loss_half1)/2 and consensus_update_rate_h1 != 0:
                 nosub_ind_h1 += 1
                 print('No consensus updates for ',
@@ -598,10 +606,12 @@ def optimize_deformations(
                     consensus_update_rate_h1 = 0
                     reset_all_linear_layer_weights(decoder_half1)
                     reset_all_linear_layer_weights(encoder_half1)
-                    regularization_factor_h1 = 1
+                    regularization_factor_h1 = 0
                     regularization_mode_half1 = RegularizationMode.MODEL
                     decoder_half1.compute_neighbour_graph()
                     decoder_half1.compute_radius_graph()
+                    physical_parameter_optimizer_half1 = torch.optim.Adam(
+                        decoder_half2.physical_parameters, lr=0.01*posLR)
 
             if losses_half2['reconstruction_loss'] > (old_loss_half2+old2_loss_half2)/2 and consensus_update_rate_h2 != 0:
                 nosub_ind_h2 += 1
@@ -613,10 +623,12 @@ def optimize_deformations(
                     consensus_update_rate_h2 = 0
                     reset_all_linear_layer_weights(decoder_half2)
                     reset_all_linear_layer_weights(encoder_half2)
-                    regularization_factor_h2 = 1
+                    regularization_factor_h2 = 0
                     regularization_mode_half2 = RegularizationMode.MODEL
                     decoder_half2.compute_neighbour_graph()
                     decoder_half2.compute_radius_graph()
+                    physical_parameter_optimizer_half2 = torch.optim.Adam(
+                        decoder_half2.physical_parameters, lr=0.01*posLR)
 
         with torch.no_grad():
             frc_half1 = losses_half1['fourier_ring_correlation'] / \
@@ -742,10 +754,10 @@ def optimize_deformations(
                                         data_loader_half2)), epoch)
 
                 summ.add_scalar(
-                    "Loss/variance_h1",
+                    "Loss/variance_h1_1",
                     decoder_half1.image_smoother.B[0].detach().cpu(), epoch)
                 summ.add_scalar(
-                    "Loss/variance2a",
+                    "Loss/variance_h2_1",
                     decoder_half2.image_smoother.B[0].detach().cpu(), epoch)
 
                 summ.add_scalar(
@@ -761,6 +773,12 @@ def optimize_deformations(
                     summ.add_scalar(
                         "Loss/amplitude_h2_2",
                         decoder_half2.image_smoother.A[1].detach().cpu(), epoch)
+                    summ.add_scalar(
+                        "Loss/variance_h1_2",
+                        decoder_half1.image_smoother.B[1].detach().cpu(), epoch)
+                    summ.add_scalar(
+                        "Loss/variance_h2_2",
+                        decoder_half2.image_smoother.B[1].detach().cpu(), epoch)
 
                 summ.add_figure("Data/FSC_half_maps",
                                 tensor_plot(fourier_shell_correlation, fix=[0, 1]), epoch)

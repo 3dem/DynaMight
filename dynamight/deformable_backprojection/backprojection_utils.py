@@ -227,22 +227,25 @@ def backproject_images_from_tile(
         poses: torch.nn.Module,
         data_preprocessor,
         use_ctf=True,
+        do_deformations=True
 ):
 
     device = decoder.device
     box_size = decoder.box_size
     with torch.no_grad():
+        if do_deformations is True:
+            tile_deformation = inverse_model(z_tile, torch.stack(
+                2 * [grid.to(device)], 0))
 
-        tile_deformation = inverse_model(z_tile, torch.stack(
-            2 * [grid.to(device)], 0))
-
-        disp = interpolate_field.compute_field(tile_deformation[0])
-        disp0 = disp[0, ...]
-        disp1 = disp[1, ...]
-        disp2 = disp[2, ...]
-        disp = torch.stack(
-            [disp0.squeeze(), disp1.squeeze(), disp2.squeeze()], 3)
-        dis_grid = disp[None, :, :, :]
+            disp = interpolate_field.compute_field(tile_deformation[0])
+            disp0 = disp[0, ...]
+            disp1 = disp[1, ...]
+            disp2 = disp[2, ...]
+            disp = torch.stack(
+                [disp0.squeeze(), disp1.squeeze(), disp2.squeeze()], 3)
+            dis_grid = disp[None, :, :, :]
+        Vol = torch.zeros(1, 1, box_size, box_size, box_size).to(device)
+        Filter = torch.zeros(box_size, box_size, box_size).to(device)
 
         for batch_ndx, sample in enumerate(data_loader):
             r, y, ctf = sample["rotation"], sample["image"], sample[
@@ -272,7 +275,7 @@ def backproject_images_from_tile(
             ctfr2_l = torch.fft.fftshift(torch.real(
                 torch.fft.ifft2(
                     torch.fft.fftshift(ctfs_l, dim=[-1, -2]),
-                    dim=[-1, -2], )).unsqueeze(1), dim=[-1, -2])
+                    dim=[-1, -2])).unsqueeze(1), dim=[-1, -2])
             ctfr2_lc = torch.nn.functional.avg_pool2d(ctfr2_l,
                                                       kernel_size=3,
                                                       stride=2,
@@ -297,8 +300,113 @@ def backproject_images_from_tile(
                 Vy = Vy.unsqueeze(0)
 
             Vy = torch.sum(Vy, 0)
-            Vy = F.grid_sample(input=Vy.unsqueeze(0).unsqueeze(0),
-                               grid=dis_grid.to(device),
-                               mode='bilinear', align_corners=False)
+            if do_deformations is False:
+                Vy = Vy[:-1, :-1, :-1].unsqueeze(0).unsqueeze(0)
+            else:
+                Vy = F.grid_sample(input=Vy.unsqueeze(0).unsqueeze(0),
+                                   grid=dis_grid.to(device),
+                                   mode='bilinear', align_corners=False)
+            Vol += Vy
+            Filter += torch.real(
+                torch.sum(torch.fft.fftn(torch.fft.fftshift(CTFy, dim=[-1, -2, -3]),
+                                         dim=[-1, -2, -3]) ** 2,
+                          0).squeeze())
+        return Vol, Filter
 
-            return Vy, CTFy
+
+def backproject_single_image(
+        z_image: torch.Tensor,
+        decoder: torch.nn.Module,
+        inverse_model: torch.nn.Module,
+        grid: torch.Tensor,
+        interpolate_field,
+        rotation,
+        idx,
+        poses,
+        y: torch.Tensor,
+        ctf: torch.Tensor,
+        data_preprocessor,
+        use_ctf=True,
+):
+
+    device = decoder.device
+    box_size = decoder.box_size
+    with torch.no_grad():
+        z_image = torch.stack(2*[z_image], 0).to(device)
+        tile_deformation = inverse_model(z_image, torch.stack(
+            2 * [grid.to(device)], 0))
+
+        disp = interpolate_field.compute_field(tile_deformation[0])
+        disp0 = disp[0, ...]
+        disp1 = disp[1, ...]
+        disp2 = disp[2, ...]
+        disp = torch.stack(
+            [disp0.squeeze(), disp1.squeeze(), disp2.squeeze()], 3)
+        dis_grid = disp[None, :, :, :]
+
+        r, t = poses(idx)
+        batch_size = y.shape[0]
+        # ctfs_l = torch.nn.functional.pad(ctf, (
+        #    box_size // 2, box_size // 2, box_size // 2,
+        #    box_size // 2, 0, 0)).to(device)
+        ctfs = torch.fft.fftshift(ctf, dim=[-1, -2])
+        ctfs_l = torch.nn.functional.pad(ctf, (
+            box_size // 2, box_size // 2, box_size // 2,
+            box_size // 2, 0, 0)).to(device)
+        y_in = data_preprocessor.apply_square_mask(y)
+        y_in = data_preprocessor.apply_translation(y_in, -t[:, 0],
+                                                   -t[:, 1])
+        y_in = data_preprocessor.apply_circular_mask(y_in)
+        y_in, r, t, ctfs, ctf = y_in.to(device), r.to(device), t.to(
+            device), ctfs.to(
+            device), ctf.to(device)
+        if use_ctf:
+            y = torch.fft.fft2(y_in, dim=[-1, -2])
+            y = y * ctfs
+            yr = torch.real(
+                torch.fft.ifft2(y, dim=[-1, -2])).unsqueeze(1)
+        else:
+            yr = y_in.unsqueeze(1)
+        ctfr2_l = torch.fft.fftshift(torch.real(
+            torch.fft.ifft2(
+                torch.fft.fftshift(ctfs_l, dim=[-1, -2]),
+                dim=[-1, -2])).unsqueeze(1), dim=[-1, -2])
+        ctfr2_lc = torch.nn.functional.avg_pool2d(ctfr2_l,
+                                                  kernel_size=3,
+                                                  stride=2,
+                                                  padding=1)
+
+        # ctfr2_lc = torch.fft.fftshift(torch.real(
+        #     torch.fft.ifft2(
+        #         torch.fft.fftshift(ctfs, dim=[-1, -2]),
+        #         dim=[-1, -2], )).unsqueeze(1), dim=[-1, -2])
+
+        CTFy = ctfr2_lc.expand(batch_size, box_size, box_size,
+                               box_size)
+        CTFy = torch.nn.functional.pad(CTFy,
+                                       (0, 1, 0, 1, 0, 1, 0, 0))
+        CTFy = rotation(CTFy.unsqueeze(1), r).squeeze()
+
+        if len(CTFy.shape) < 4:
+            CTFy = CTFy.unsqueeze(0)
+
+        CTFy = CTFy[:, :-1, :-1, :-1]
+        CTFy = torch.real(
+            torch.sum(torch.fft.fftn(torch.fft.fftshift(CTFy, dim=[-1, -2, -3]),
+                                     dim=[-1, -2, -3]) ** 2,
+                      0).squeeze())
+
+        Vy = yr.expand(batch_size, box_size, box_size, box_size)
+        Vy = torch.nn.functional.pad(Vy, (0, 1, 0, 1, 0, 1, 0, 0))
+        Vy = rotation(Vy.unsqueeze(1), r).squeeze()
+        if len(Vy.shape) < 4:
+            Vy = Vy.unsqueeze(0)
+        if len(Vy.shape) < 4:
+            Vy = Vy.unsqueeze(0)
+
+        Vy = torch.sum(Vy, 0)
+        Vy = F.grid_sample(input=Vy.unsqueeze(0).unsqueeze(0),
+                           grid=dis_grid.to(device),
+                           mode='bilinear', align_corners=False)
+
+        return Vy, CTFy

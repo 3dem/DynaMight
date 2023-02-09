@@ -104,6 +104,7 @@ class DisplacementDecoder(torch.nn.Module):
         self.masked_positions = []
         self.unmasked_positions = []
         self.n_active_points = []
+        self.active_indices = []
 
     def _update_positions_unmasked(
         self, z, positions
@@ -277,22 +278,42 @@ class DisplacementDecoder(torch.nn.Module):
         print(self.n_active_points)
 
     def compute_neighbour_graph(self):
-        positions_ang = self.model_positions.detach() * self.box_size * self.ang_pix
-        knn = knn_graph(positions_ang, 2, workers=8)
-        differences = positions_ang[knn[0]] - positions_ang[knn[1]]
-        neighbour_distances = torch.pow(torch.sum(differences**2, dim=1), 0.5)
-        self.neighbour_graph = knn
-        self.mean_neighbour_distance = torch.mean(neighbour_distances)
+        if self.mask == None:
+            positions_ang = self.model_positions.detach() * self.box_size * self.ang_pix
+            knn = knn_graph(positions_ang, 2, workers=8)
+            differences = positions_ang[knn[0]] - positions_ang[knn[1]]
+            neighbour_distances = torch.pow(
+                torch.sum(differences**2, dim=1), 0.5)
+            self.neighbour_graph = knn
+            self.mean_neighbour_distance = torch.mean(neighbour_distances)
+        else:
+            positions_ang = self.unmasked_positions.detach()*self.box_size * self.ang_pix
+            knn = knn_graph(positions_ang, 2, workers=8)
+            differences = positions_ang[knn[0]] - positions_ang[knn[1]]
+            neighbour_distances = torch.pow(
+                torch.sum(differences**2, dim=1), 0.5)
+            self.neighbour_graph = knn
+            self.mean_neighbour_distance = torch.mean(neighbour_distances)
 
     def compute_radius_graph(self):
-        positions_ang = self.model_positions.detach() * self.box_size * self.ang_pix
-        self.radius_graph = radius_graph(
-            positions_ang, r=1.5*self.mean_neighbour_distance, workers=8
-        )
-        differences = positions_ang[self.radius_graph[0]
-                                    ] - positions_ang[self.radius_graph[1]]
-        self.model_distances = torch.pow(torch.sum(differences**2, 1), 0.5)
-        self.mean_graph_distance = torch.mean(self.model_distances)
+        if self.mask == None:
+            positions_ang = self.model_positions.detach() * self.box_size * self.ang_pix
+            self.radius_graph = radius_graph(
+                positions_ang, r=1.5*self.mean_neighbour_distance, workers=8
+            )
+            differences = positions_ang[self.radius_graph[0]
+                                        ] - positions_ang[self.radius_graph[1]]
+            self.model_distances = torch.pow(torch.sum(differences**2, 1), 0.5)
+            self.mean_graph_distance = torch.mean(self.model_distances)
+        else:
+            positions_ang = self.unmasked_positions.detach() * self.box_size * self.ang_pix
+            self.radius_graph = radius_graph(
+                positions_ang, r=1.5*self.mean_neighbour_distance, workers=8
+            )
+            differences = positions_ang[self.radius_graph[0]
+                                        ] - positions_ang[self.radius_graph[1]]
+            self.model_distances = torch.pow(torch.sum(differences**2, 1), 0.5)
+            self.mean_graph_distance = torch.mean(self.model_distances)
 
     def mask_model_positions(self):
         unmasked_indices = torch.round(
@@ -307,6 +328,8 @@ class DisplacementDecoder(torch.nn.Module):
         self.masked_positions = torch.nn.Parameter(
             masked_positions, requires_grad=True)
         self.n_active_points = self.unmasked_positions.shape[0]
+        self.active_indices = torch.where((self.mask[unmasked_indices[:, 0],
+                                                     unmasked_indices[:, 1], unmasked_indices[:, 2]] > 0.9) == True)[0]
 
     @ property
     def physical_parameters(self) -> torch.nn.ParameterList:
@@ -320,7 +343,7 @@ class DisplacementDecoder(torch.nn.Module):
         ]
         return params
 
-    @property
+    @ property
     def network_parameters(self) -> List[torch.nn.Parameter]:
         """Parameters which are not physically meaninful in a coordinate model."""
         network_params = [
@@ -368,6 +391,7 @@ class DisplacementDecoder(torch.nn.Module):
 
         FF = torch.real(torch.fft.fftn(torch.fft.fftshift(
             F, dim=[-3, -2, -1]), dim=[-3, -2, -1], norm='ortho'))
+
         bs = 2
         Filts = torch.stack(bs * [FF], 0)
         Filtim = torch.sum(Filts * volume, 1)
@@ -404,6 +428,7 @@ class DisplacementDecoder(torch.nn.Module):
                                                      None]**2)  # /self.image_smoother.B[:, None, None, None])
         FF = torch.real(torch.fft.fftn(torch.fft.fftshift(
             F, dim=[-3, -2, -1]), dim=[-3, -2, -1], norm='ortho'))
+
         bs = V.shape[0]
         Filts = torch.stack(bs * [FF], 0)
         Filtim = torch.sum(Filts * V, 1)
