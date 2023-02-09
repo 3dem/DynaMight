@@ -14,19 +14,13 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.fft
-import torch.nn.functional as F
-# from torch_geometric.nn import radius_graph, knn_graph
-# from torch_scatter import scatter
-import umap
 from sklearn.decomposition import PCA
 from tsnecuda import TSNE
 from Bio.PDB import PDBParser, MMCIFParser, PDBIO
 from Bio.PDB.mmcifio import MMCIFIO
 from tqdm import tqdm
 import mrcfile
-from ..data.handlers.particle_image_preprocessor import ParticleImagePreprocessor
 from ..data.dataloaders.relion import RelionDataset
-from ..data.handlers.star_file import load_star
 from scipy.special import comb
 from sklearn.neighbors import kneighbors_graph, radius_neighbors_graph
 
@@ -532,6 +526,7 @@ def visualize_latent(z, c, s=0.1, alpha=0.5, cmap='jet', method='umap'):
         tsne = TSNE(n_jobs=16)
         embed = tsne.fit_transform(z)
     elif method == 'umap':
+        import umap
         embed = umap.UMAP(local_connectivity=1,
                           repulsion_strength=2, random_state=12).fit_transform(z)
     elif method == 'projection_last':

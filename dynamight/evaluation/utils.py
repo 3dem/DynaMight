@@ -2,7 +2,6 @@ import torch
 import numpy as np
 from tsnecuda import TSNE
 from sklearn.decomposition import PCA, FastICA
-import umap
 import torch.nn.functional as F
 from tqdm import tqdm
 
@@ -14,6 +13,7 @@ def compute_dimensionality_reduction(
         embedded_latent_space = TSNE(perplexity=1000.0, num_neighbors=1000,
                                      device=0).fit_transform(latent_space.cpu())
     elif method == 'UMAP':
+        import umap
         embedded_latent_space = umap.UMAP(
             random_state=12, n_neighbors=100).fit_transform(latent_space.cpu().numpy())
     elif method == 'PCA':
