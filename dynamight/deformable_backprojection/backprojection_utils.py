@@ -327,22 +327,24 @@ def backproject_single_image(
         ctf: torch.Tensor,
         data_preprocessor,
         use_ctf=True,
+        do_deformations=True
 ):
 
     device = decoder.device
     box_size = decoder.box_size
     with torch.no_grad():
-        z_image = torch.stack(2*[z_image], 0).to(device)
-        tile_deformation = inverse_model(z_image, torch.stack(
-            2 * [grid.to(device)], 0))
+        if do_deformations is True:
+            z_image = torch.stack(2*[z_image], 0).to(device)
+            tile_deformation = inverse_model(z_image, torch.stack(
+                2 * [grid.to(device)], 0))
 
-        disp = interpolate_field.compute_field(tile_deformation[0])
-        disp0 = disp[0, ...]
-        disp1 = disp[1, ...]
-        disp2 = disp[2, ...]
-        disp = torch.stack(
-            [disp0.squeeze(), disp1.squeeze(), disp2.squeeze()], 3)
-        dis_grid = disp[None, :, :, :]
+            disp = interpolate_field.compute_field(tile_deformation[0])
+            disp0 = disp[0, ...]
+            disp1 = disp[1, ...]
+            disp2 = disp[2, ...]
+            disp = torch.stack(
+                [disp0.squeeze(), disp1.squeeze(), disp2.squeeze()], 3)
+            dis_grid = disp[None, :, :, :]
 
         r, t = poses(idx)
         batch_size = y.shape[0]
@@ -405,8 +407,11 @@ def backproject_single_image(
             Vy = Vy.unsqueeze(0)
 
         Vy = torch.sum(Vy, 0)
-        Vy = F.grid_sample(input=Vy.unsqueeze(0).unsqueeze(0),
-                           grid=dis_grid.to(device),
-                           mode='bilinear', align_corners=False)
+        if do_deformations is True:
+            Vy = F.grid_sample(input=Vy.unsqueeze(0).unsqueeze(0),
+                               grid=dis_grid.to(device),
+                               mode='bilinear', align_corners=False)
+        else:
+            Vy = Vy[:-1, :-1, :-1]
 
         return Vy, CTFy

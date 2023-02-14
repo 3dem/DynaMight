@@ -43,7 +43,8 @@ def deformable_backprojection_single(
     mask_soft_edge_width: int = Option(20),
     data_loader_threads: int = Option(8),
     downsample: int = Option(2),
-    mask_reconstruction: bool = Option(False)
+    mask_reconstruction: bool = Option(False),
+    do_deformations: bool = Option(True)
 ):
 
     # To do:
@@ -248,7 +249,8 @@ def deformable_backprojection_single(
             y=y,
             ctf=ctf,
             data_preprocessor=data_preprocessor,
-            use_ctf=True,)
+            use_ctf=True,
+            do_deformations=do_deformations)
 
         V += (1 / len(dataset)) * Vol.squeeze()
         CTF += (1 / len(dataset)) * Filter.squeeze()
@@ -321,7 +323,8 @@ def deformable_backprojection_single(
             y=y,
             ctf=ctf,
             data_preprocessor=data_preprocessor,
-            use_ctf=True,)
+            use_ctf=True,
+            do_deformations=do_deformations)
 
         V += (1 / len(dataset)) * Vol.squeeze()
         CTF += (1 / len(dataset)) * Filter.squeeze()

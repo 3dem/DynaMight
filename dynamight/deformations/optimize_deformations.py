@@ -610,8 +610,8 @@ def optimize_deformations(
                     regularization_mode_half1 = RegularizationMode.MODEL
                     decoder_half1.compute_neighbour_graph()
                     decoder_half1.compute_radius_graph()
-                    physical_parameter_optimizer_half1 = torch.optim.Adam(
-                        decoder_half2.physical_parameters, lr=0.01*posLR)
+                    physical_parameter_optimizer_half1 = torch.optim.SGD(
+                        decoder_half1.physical_parameters, lr=0.001*posLR)
 
             if losses_half2['reconstruction_loss'] > (old_loss_half2+old2_loss_half2)/2 and consensus_update_rate_h2 != 0:
                 nosub_ind_h2 += 1
@@ -627,8 +627,8 @@ def optimize_deformations(
                     regularization_mode_half2 = RegularizationMode.MODEL
                     decoder_half2.compute_neighbour_graph()
                     decoder_half2.compute_radius_graph()
-                    physical_parameter_optimizer_half2 = torch.optim.Adam(
-                        decoder_half2.physical_parameters, lr=0.01*posLR)
+                    physical_parameter_optimizer_half2 = torch.optim.SGD(
+                        decoder_half2.physical_parameters, lr=0.001*posLR)
 
         with torch.no_grad():
             frc_half1 = losses_half1['fourier_ring_correlation'] / \

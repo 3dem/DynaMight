@@ -32,6 +32,9 @@ def explore_latent_space(
 ):
     # todo: @schwab implement preload images
     # load and prepare models for inference
+    print('Visualizing latent space for half:', half_set)
+    print('For visualization of the other half set, specify --half_set')
+
     device = "cpu" if gpu_id is None else 'cuda:' + str(gpu_id)
     if checkpoint_file is None:
         checkpoint_file = output_directory / \
@@ -50,32 +53,36 @@ def explore_latent_space(
             pass
         else:
             refinement_star_file = refinement_star_file / 'run_data.star'
-    dataframe = starfile.read(refinement_star_file)
-    circular_mask_thickness = soft_edge_width
 
-    encoder = cp['encoder_' + 'half' + str(half_set)]
-    decoder = cp['decoder_' + 'half' + str(half_set)]
-    poses = cp['poses']
 
-    relion_dataset = RelionDataset(
-        path=refinement_star_file,
-        circular_mask_thickness=soft_edge_width,
-        particle_diameter=particle_diameter,
-    )
-    dataset = relion_dataset.make_particle_dataset()
-    diameter_ang = relion_dataset.particle_diameter
-    box_size = relion_dataset.box_size
-    ang_pix = relion_dataset.pixel_spacing_angstroms
+'
 
-    encoder.load_state_dict(
-        cp['encoder_' + 'half' + str(half_set) + '_state_dict'])
-    decoder.load_state_dict(
-        cp['decoder_' + 'half' + str(half_set) + '_state_dict'])
-    poses.load_state_dict(cp['poses_state_dict'])
+dataframe = starfile.read(refinement_star_file)
+circular_mask_thickness = soft_edge_width
 
-    '''Computing indices for the second half set'''
+encoder = cp['encoder_' + 'half' + str(half_set)]
+decoder = cp['decoder_' + 'half' + str(half_set)]
+poses = cp['poses']
 
-    if half_set == 1:
+relion_dataset = RelionDataset(
+    path=refinement_star_file,
+    circular_mask_thickness=soft_edge_width,
+    particle_diameter=particle_diameter,
+)
+dataset = relion_dataset.make_particle_dataset()
+diameter_ang = relion_dataset.particle_diameter
+box_size = relion_dataset.box_size
+ang_pix = relion_dataset.pixel_spacing_angstroms
+
+encoder.load_state_dict(
+    cp['encoder_' + 'half' + str(half_set) + '_state_dict'])
+decoder.load_state_dict(
+     cp['decoder_' + 'half' + str(half_set) + '_state_dict'])
+ poses.load_state_dict(cp['poses_state_dict'])
+
+  '''Computing indices for the second half set'''
+
+   if half_set == 1:
         indices = cp['indices_half1'].cpu().numpy()
     else:
         inds_half1 = cp['indices_half1'].cpu().numpy()
