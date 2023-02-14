@@ -129,7 +129,7 @@ def optimize_deformations(
     typer.echo('Initializing the particle dataset')
 
     relion_dataset = RelionDataset(
-        path=refinement_star_file,
+        path=refinement_star_file.resolve(),
         circular_mask_thickness=soft_edge_width,
         particle_diameter=particle_diameter,
     )
