@@ -54,7 +54,7 @@ def deformable_backprojection_single(
         inverse_deformation_directory = output_directory / 'inverse_deformations'
     if vae_directory is None:
         vae_directory = output_directory / \
-                        'forward_deformations/checkpoints/checkpoint_final.pth'
+            'forward_deformations/checkpoints/checkpoint_final.pth'
 
     cp = torch.load(inverse_deformation_directory /
                     'inv_chkpt.pth', map_location=device)
@@ -102,6 +102,15 @@ def deformable_backprojection_single(
         dataset.preload_images()
 
     inds_half1 = cp_vae['indices_half1'].cpu().numpy()
+    inds_val = cp_vae['indices_val'].cpu().numpy()
+
+    try:
+        inds_val = cp_vae['indices_val'].cpu().numpy()
+        inds_half1 = np.concatenate(
+            [inds_half1, inds_val[:inds_val.shape[0]//2]])
+    except:
+        print('no validation set given')
+
     inds_half2 = list(set(range(len(dataset))) - set(list(inds_half1)))
 
     dataset_half1 = torch.utils.data.Subset(dataset, inds_half1)
@@ -226,6 +235,7 @@ def deformable_backprojection_single(
         shuffle=False,
         pin_memory=False
     )
+    nr = 0
     for batch_ndx, sample in enumerate(tqdm(current_data_loader)):
         r, y, ctf = sample["rotation"], sample["image"], sample[
             "ctf"]
@@ -245,18 +255,14 @@ def deformable_backprojection_single(
             y=y,
             ctf=ctf,
             data_preprocessor=data_preprocessor,
-<<<<<<< HEAD
             use_ctf=True,
             do_deformations=do_deformations)
-=======
-            use_ctf=True, )
->>>>>>> c156bdabf2412ccc9a8b0c4ba33bffe95d7a5c28
 
         V += (1 / len(dataset)) * Vol.squeeze()
         filter += (1 / len(dataset)) * Filter.squeeze()
         i += 1
 
-        if i % len(dataset) // 20 == 0:
+        if i % (len(dataset) // 20) == 0:
             try:
                 VV = V[:, :, :] * rec_mask
             except:
@@ -269,9 +275,10 @@ def deformable_backprojection_single(
                                                    lam_thres * torch.ones_like(
                                                        filter)),
                                 dim=[-1, -2, -3])), dim=[-1, -2, -3])
-            nr = i // 50
+            nr += 1
             mrcfile.write(
-                name=backprojection_directory / f'reconstruction_half1_{nr:03}.mrc',
+                name=backprojection_directory /
+                f'reconstruction_half1_{nr:03}.mrc',
                 data=(VV2 / torch.max(VV2)).float().cpu().numpy(),
                 voxel_size=decoder_half1.ang_pix,
                 overwrite=True,
@@ -280,7 +287,8 @@ def deformable_backprojection_single(
         V = V * rec_mask
     except:
         V = V
-    V = torch.fft.fftn(torch.fft.fftshift(V, dim=[-1, -2, -3]), dim=[-1, -2, -3])
+    V = torch.fft.fftn(torch.fft.fftshift(
+        V, dim=[-1, -2, -3]), dim=[-1, -2, -3])
     V = torch.fft.fftshift(torch.real(torch.fft.ifftn(
         V / torch.maximum(filter, lam_thres * torch.ones_like(filter)),
         dim=[-1, -2, -3])), dim=[-1, -2, -3])
@@ -308,6 +316,7 @@ def deformable_backprojection_single(
         shuffle=False,
         pin_memory=False
     )
+    nr = 0
     for batch_ndx, sample in enumerate(tqdm(current_data_loader)):
         r, y, ctf = sample["rotation"], sample["image"], sample[
             "ctf"]
@@ -327,31 +336,29 @@ def deformable_backprojection_single(
             y=y,
             ctf=ctf,
             data_preprocessor=data_preprocessor,
-<<<<<<< HEAD
             use_ctf=True,
             do_deformations=do_deformations)
-=======
-            use_ctf=True, )
->>>>>>> c156bdabf2412ccc9a8b0c4ba33bffe95d7a5c28
 
         V += (1 / len(dataset)) * Vol.squeeze()
         filter += (1 / len(dataset)) * Filter.squeeze()
         i += 1
 
-        if i % len(dataset) // 20 == 0:
+        if i % (len(dataset) // 20) == 0:
             try:
                 VV = V[:, :, :] * rec_mask
             except:
                 VV = V[:, :, :]
-            VV = torch.fft.fftn(torch.fft.fftshift(VV, dim=[-1, -2, -3]), dim=[-1, -2, -3])
+            VV = torch.fft.fftn(torch.fft.fftshift(
+                VV, dim=[-1, -2, -3]), dim=[-1, -2, -3])
             VV2 = torch.fft.fftshift(torch.real(
                 torch.fft.ifftn(VV / torch.maximum(filter,
                                                    lam_thres * torch.ones_like(
                                                        filter)),
                                 dim=[-1, -2, -3])), dim=[-1, -2, -3])
-            nr = (len(dataset) // 20) * i
+            nr += 1
             mrcfile.write(
-                name=backprojection_directory / f'reconstruction_half2_{nr:03}.mrc',
+                name=backprojection_directory /
+                f'reconstruction_half2_{nr:03}.mrc',
                 data=(VV2 / torch.max(VV2)).float().cpu().numpy(),
                 voxel_size=decoder_half2.ang_pix,
                 overwrite=True,

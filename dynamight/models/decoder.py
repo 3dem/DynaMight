@@ -383,14 +383,23 @@ class DisplacementDecoder(torch.nn.Module):
         R, M = radial_index_mask3(self.grid_oversampling_factor*self.vol_box)
         R = torch.stack(self.image_smoother.n_classes * [R.to(self.device)], 0)
 
+        # F = torch.exp(-(1/(self.image_smoother.B[:, None, None,
+        #                                          None])**2) * R**2) * (self.image_smoother.A[
+        #                                              0, None,
+        #                                              None,
+        #                                              None]**2)  # /self.image_smoother.B[:, None, None, None])
+        # F = torch.exp(-(1/(self.image_smoother.B[:, None, None,
+        #                                          None])**2) * R**2) * (torch.nn.functional.softmax(self.image_smoother.A[
+        #                                              :, None,
+        #                                              None,
+        #                                              None], 0)**2)
         F = torch.exp(-(1/(self.image_smoother.B[:, None, None,
-                                                 None])**2) * R**2) * (self.image_smoother.A[
-                                                     0, None,
+                                                 None])**2) * R**2) * (torch.max(self.image_smoother.A)/4*self.image_smoother.A[
+                                                     :, None,
                                                      None,
-                                                     None]**2)  # /self.image_smoother.B[:, None, None, None])
-
+                                                     None]**2)
         FF = torch.real(torch.fft.fftn(torch.fft.fftshift(
-            F, dim=[-3, -2, -1]), dim=[-3, -2, -1], norm='ortho'))
+            F, dim=[-3, -2, -1]), dim=[-3, -2, -1], norm='ortho'))/self.image_smoother.B[:, None, None, None]
 
         bs = 2
         Filts = torch.stack(bs * [FF], 0)
@@ -420,14 +429,23 @@ class DisplacementDecoder(torch.nn.Module):
             V, dim=[-3, -2, -1]), dim=[-3, -2, -1], norm='ortho')
         R, M = radial_index_mask3(self.grid_oversampling_factor*self.vol_box)
         R = torch.stack(self.image_smoother.n_classes * [R.to(self.device)], 0)
-
+        # F = torch.exp(-(1/(self.image_smoother.B[:, None, None,
+        #                                          None])**2) * R**2) * (self.image_smoother.A[
+        #                                              0, None,
+        #                                              None,
+        #                                              None]**2)
+        # F = torch.exp(-(1/(self.image_smoother.B[:, None, None,
+        #                                          None])**2) * R**2) * (torch.nn.functional.softmax(self.image_smoother.A[
+        #                                              :, None,
+        #                                              None,
+        #                                              None], 0)**2)# /self.image_smoother.B[:, None, None, None])
         F = torch.exp(-(1/(self.image_smoother.B[:, None, None,
-                                                 None])**2) * R**2) * (self.image_smoother.A[
-                                                     0, None,
+                                                 None])**2) * R**2) * (torch.max(self.image_smoother.A)/4*self.image_smoother.A[
+                                                     :, None,
                                                      None,
-                                                     None]**2)  # /self.image_smoother.B[:, None, None, None])
+                                                     None]**2)
         FF = torch.real(torch.fft.fftn(torch.fft.fftshift(
-            F, dim=[-3, -2, -1]), dim=[-3, -2, -1], norm='ortho'))
+            F, dim=[-3, -2, -1]), dim=[-3, -2, -1], norm='ortho'))/self.image_smoother.B[:, None, None, None]
 
         bs = V.shape[0]
         Filts = torch.stack(bs * [FF], 0)

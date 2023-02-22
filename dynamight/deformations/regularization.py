@@ -159,7 +159,7 @@ def _compute_geometry_norm(
         mode=mode,
         neighbour_loss_weight=0.0,
         repulsion_weight=0.01,
-        outlier_weight=1,
+        outlier_weight=0.0,
         deformation_regularity_weight=1,
     )
     for batch_ndx, sample in enumerate(dataloader):

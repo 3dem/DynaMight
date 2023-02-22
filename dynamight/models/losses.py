@@ -139,7 +139,7 @@ class GeometricLoss:
         # add quadratic penalty for distance being greater than cutoff
         x1 = torch.clamp(distances, max=cutoff_distance)
         # print(torch.min(x1))
-        x1 = (x1 - cutoff_distance)**2
+        x1 = torch.abs(x1 - cutoff_distance)
         return torch.mean(x1)
 
     def calculate_outlier_loss(
@@ -154,7 +154,7 @@ class GeometricLoss:
 
         # penalise points further away than cutoff
         distances = torch.clamp(distances, min=cutoff)
-        return torch.mean(distances - cutoff)
+        return torch.mean((distances - cutoff)**2)
 
     def calculate_deformation_regularity_loss(
         self,

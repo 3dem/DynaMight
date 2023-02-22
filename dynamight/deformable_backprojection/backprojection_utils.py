@@ -30,7 +30,7 @@ class DeformationInterpolator:
         super(DeformationInterpolator, self).__init__()
         self.grid = grid.cpu().numpy()
         self.int_grid = torch.tensor(
-            np.round((self.grid + 0.5) * (box_size - 1)) // ds).long()
+            np.round((self.grid + 0.5) * (box_size-1)) // ds).long()
         self.box_size = box_size
         self.ds = ds
 
@@ -303,9 +303,9 @@ def backproject_images_from_tile(
             if do_deformations is False:
                 Vy = Vy[:-1, :-1, :-1].unsqueeze(0).unsqueeze(0)
             else:
-                Vy = F.grid_sample(input=Vy.unsqueeze(0).unsqueeze(0),
+                Vy = F.grid_sample(input=Vy[:-1, :-1, :-1].unsqueeze(0).unsqueeze(0),
                                    grid=dis_grid.to(device),
-                                   mode='bilinear', align_corners=False)
+                                   mode='bilinear', align_corners=True)
             Vol += Vy
             Filter += torch.real(
                 torch.sum(torch.fft.fftn(torch.fft.fftshift(CTFy, dim=[-1, -2, -3]),
@@ -408,9 +408,9 @@ def backproject_single_image(
 
         Vy = torch.sum(Vy, 0)
         if do_deformations is True:
-            Vy = F.grid_sample(input=Vy.unsqueeze(0).unsqueeze(0),
+            Vy = F.grid_sample(input=Vy[:-1, :-1, :-1].unsqueeze(0).unsqueeze(0),
                                grid=dis_grid.to(device),
-                               mode='bilinear', align_corners=False)
+                               mode='bilinear', align_corners=True)
         else:
             Vy = Vy[:-1, :-1, :-1]
 

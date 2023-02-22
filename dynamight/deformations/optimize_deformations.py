@@ -35,7 +35,7 @@ from ..utils.utils_new import compute_threshold, load_models, add_weight_decay_t
     reset_all_linear_layer_weights, graph2bild, generate_form_factor, \
     visualize_latent, tensor_plot, tensor_imshow, tensor_scatter, \
     apply_ctf, write_xyz, calculate_grid_oversampling_factor, generate_data_normalization_mask, FSC, radial_index_mask, radial_index_mask3
-from ._train_single_epoch_half import train_epoch
+from ._train_single_epoch_half import train_epoch, val_epoch
 from ._update_model import update_model_positions
 # from coarse_grain import optimize_coarsegraining
 
@@ -161,11 +161,15 @@ def optimize_deformations(
             set(range(len(particle_dataset))) - set(list(inds_half1)))
         dataset_half1 = torch.utils.data.Subset(particle_dataset, inds_half1)
         dataset_half2 = torch.utils.data.Subset(particle_dataset, inds_half2)
+
     else:
+
+        train_dataset, val_dataset = torch.utils.data.dataset.random_split(
+            particle_dataset, [len(particle_dataset)-len(particle_dataset)//10, len(particle_dataset)//10])
         dataset_half1, dataset_half2 = torch.utils.data.dataset.random_split(
-            particle_dataset, [len(particle_dataset) // 2,
-                               len(particle_dataset) - len(
-                                   particle_dataset) // 2])
+            train_dataset, [len(train_dataset) // 2,
+                            len(train_dataset) - len(
+                train_dataset) // 2])
 
     data_loader_half1 = DataLoader(
         dataset=dataset_half1,
@@ -177,6 +181,14 @@ def optimize_deformations(
 
     data_loader_half2 = DataLoader(
         dataset=dataset_half2,
+        batch_size=batch_size,
+        num_workers=n_workers,
+        shuffle=True,
+        pin_memory=True
+    )
+
+    data_loader_val = DataLoader(
+        dataset=val_dataset,
         batch_size=batch_size,
         num_workers=n_workers,
         shuffle=True,
@@ -314,9 +326,9 @@ def optimize_deformations(
     dec_half2_optimizer = torch.optim.Adam(dec_half2_params, lr=LR)
 
     physical_parameter_optimizer_half1 = torch.optim.Adam(
-        [decoder_half1.image_smoother.A], lr=100*posLR)
+        decoder_half1.physical_parameters, lr=posLR)
     physical_parameter_optimizer_half2 = torch.optim.Adam(
-        [decoder_half2.image_smoother.A], lr=100*posLR)
+        decoder_half2.physical_parameters, lr=posLR)
 
     mean_dist_half1 = torch.zeros(n_points)
     mean_dist_half2 = torch.zeros(n_points)
@@ -329,8 +341,7 @@ def optimize_deformations(
     '--------------------------------------------------------------------------------------------------------------------'
 
     kld_weight = batch_size / len(particle_dataset)
-    # beta = 0  # kld_weight**2 * 0.0006
-    beta = kld_weight**2 * 0.0006  # * 1/decoder_half1.n_points
+    beta = kld_weight**2 * 0.0006
 
     epoch_t = 0
     if n_warmup_epochs == None:
@@ -373,19 +384,24 @@ def optimize_deformations(
     # assign indices to particles for half set division
     tot_latent_dim = encoder_half1.latent_dim
     half1_indices = []
+    val_indices = []
     with torch.no_grad():
         print('Computing half-set indices')
         for batch_ndx, sample in enumerate(data_loader_half1):
             idx = sample['idx']
             half1_indices.append(idx)
-            if batch_ndx % batch_size == 0:
-                print('Computing indices', batch_ndx / batch_size, 'of',
-                      int(np.ceil(len(data_loader_half1) / batch_size)))
+
+        for batch_ndx, sample in enumerate(data_loader_val):
+            idx = sample['idx']
+            val_indices.append(idx)
 
         half1_indices = torch.tensor(
             [item for sublist in half1_indices for item in sublist])
+        val_indices = torch.tensor(
+            [item for sublist in val_indices for item in sublist])
         cols = torch.ones(len(particle_dataset))
         cols[half1_indices] = 2
+        cols[val_indices] = 1.5
 
     # the actual training loop
     for epoch in range(n_epochs):
@@ -412,10 +428,10 @@ def optimize_deformations(
             )
             dec_half1_optimizer = torch.optim.Adam(dec_half1_params, lr=LR)
             dec_half2_optimizer = torch.optim.Adam(dec_half2_params, lr=LR)
-            physical_parameter_optimizer_half1 = torch.optim.Adam(
-                decoder_half1.physical_parameters, lr=0.1*posLR)
-            physical_parameter_optimizer_half2 = torch.optim.Adam(
-                decoder_half2.physical_parameters, lr=0.1*posLR)
+            physical_parameter_optimizer_half1 = torch.optim.SGD(
+                decoder_half1.physical_parameters, lr=posLR)
+            physical_parameter_optimizer_half2 = torch.optim.SGD(
+                decoder_half2.physical_parameters, lr=posLR)
 
         # initialise running losses
         running_recloss_half1 = 0
@@ -551,6 +567,38 @@ def optimize_deformations(
 
         angles_op.step()
         shifts_op.step()
+
+        latent_space_val1, idix_half1 = val_epoch(
+            encoder_half1,
+            enc_half1_optimizer,
+            decoder_half1,
+            data_loader_val,
+            angles,
+            shifts,
+            data_preprocessor,
+            epoch,
+            n_warmup_epochs,
+            data_normalization_mask,
+            latent_space,
+            latent_weight=beta,
+            consensus_update_pooled_particles=consensus_update_pooled_particles,
+        )
+
+        latent_space_val2, idix_half2 = val_epoch(
+            encoder_half2,
+            enc_half2_optimizer,
+            decoder_half2,
+            data_loader_val,
+            angles,
+            shifts,
+            data_preprocessor,
+            epoch,
+            n_warmup_epochs,
+            data_normalization_mask,
+            latent_space,
+            latent_weight=beta,
+            consensus_update_pooled_particles=consensus_update_pooled_particles,
+        )
 
         current_angles = angles.detach().cpu().numpy()
         angular_error = np.mean(np.square(current_angles - original_angles))
@@ -712,18 +760,15 @@ def optimize_deformations(
                 if tot_latent_dim > 2:
                     if epoch % 5 == 0 and epoch > n_warmup_epochs:
                         summ.add_figure("Data/latent",
-                                        visualize_latent(latent_space, c=torch.cat(
-                                            [torch.zeros(len(dataset_half1)),
-                                             torch.ones(len(dataset_half2))], 0), s=3,
-                                            alpha=0.2, method='pca'),
+                                        visualize_latent(latent_space, c=cols, s=3,
+                                                         alpha=0.2, method='pca'),
                                         epoch)
 
                 else:
                     summ.add_figure("Data/latent",
                                     visualize_latent(
                                         latent_space,
-                                        c=torch.cat([torch.zeros(len(dataset_half1)),
-                                                     torch.ones(len(dataset_half2))], 0),
+                                        c=cols,
                                         s=3,
                                         alpha=0.2),
                                     epoch)
@@ -860,6 +905,7 @@ def optimize_deformations(
                               'dec_half1_optimizer': dec_half1_optimizer.state_dict(),
                               'dec_half2_optimizer': dec_half2_optimizer.state_dict(),
                               'indices_half1': half1_indices,
+                              'indices_val': val_indices,
                               'refinement_directory': refinement_star_file}
                 if epoch == (n_epochs - 1):
                     checkpoint_file = deformations_directory / 'checkpoints/checkpoint_final.pth'

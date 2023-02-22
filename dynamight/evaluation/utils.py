@@ -31,7 +31,8 @@ def compute_latent_space_and_colors(
         dataloader: torch.utils.data.DataLoader,
         poses: torch.nn.Module,
         data_preprocessor,
-        indices
+        indices,
+        reduce_by_deformation=False,
 ):
     device = decoder.device
 
@@ -51,7 +52,7 @@ def compute_latent_space_and_colors(
     'Evaluate model on the half-set'
 
     global_distances = torch.zeros(decoder.model_positions.shape[0]).to(device)
-
+    feature_vec = []
     with torch.no_grad():
         for batch_ndx, sample in enumerate(tqdm(dataloader)):
             r, y, ctf = sample["rotation"], sample["image"], sample["ctf"]
@@ -65,6 +66,9 @@ def compute_latent_space_and_colors(
                 device), ctf.to(device), t.to(device)
             mu, _ = encoder(y, ctf)
             _, _, displacements = decoder(mu, r, t)
+            if reduce_by_deformation is True:
+                feature_vec.append(
+                    displacements[:, ::4, :].flatten(start_dim=1))
             displacement_norm = torch.linalg.vector_norm(displacements, dim=-1)
             mean_displacement_norm = torch.mean(displacement_norm, 0)
             global_distances += mean_displacement_norm
@@ -87,6 +91,9 @@ def compute_latent_space_and_colors(
                 color_position = torch.cat([color_position,
                                             torch.mean(model_positions.movedim(
                                                 2, 0) * displacement_norm, -1)/torch.linalg.vector_norm(displacement_norm, -1)], 1)
+
+    if reduce_by_deformation is True:
+        feature_vec = torch.cat(feature_vec, 0)
 
     color_direction = torch.movedim(color_direction, 0, 1)
     color_direction = F.normalize(color_direction, dim=1)
@@ -119,4 +126,4 @@ def compute_latent_space_and_colors(
     point_colors = {'activity': mean_deformation, 'amplitude': amps,
                     'width': widths, 'position': consensus_color}
 
-    return z, lat_colors, point_colors
+    return z, lat_colors, point_colors, feature_vec

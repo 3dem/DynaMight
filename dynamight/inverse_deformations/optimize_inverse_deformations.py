@@ -132,17 +132,23 @@ def optimize_inverse_deformations(
     inv_half1_params = inv_half1.parameters()
     inv_half2_params = inv_half2.parameters()
     inv_half1_params = add_weight_decay_to_named_parameters(
-        inv_half1, weight_decay=0.005)
+        inv_half1, weight_decay=0.003)
     inv_half2_params = add_weight_decay_to_named_parameters(
-        inv_half2, weight_decay=0.005)
-    inv_half1_optimizer = torch.optim.Adam(inv_half1_params, lr=5e-4)
-    inv_half2_optimizer = torch.optim.Adam(inv_half2_params, lr=5e-4)
+        inv_half2, weight_decay=0.003)
+    learning_rate_h1 = 5e-4
+    learning_rate_h2 = 5e-4
+    inv_half1_optimizer = torch.optim.Adam(
+        inv_half1_params, lr=learning_rate_h1)
+    inv_half2_optimizer = torch.optim.Adam(
+        inv_half2_params, lr=learning_rate_h2)
 
     N_inv = n_epochs
 
     latent_space = torch.zeros(len(particle_dataset), latent_dim)
     deformed_positions = torch.zeros(
         len(particle_dataset), n_points, 3)
+    loss_list_half1 = []
+    loss_list_half2 = []
 
     for epoch in tqdm(range(N_inv)):
         inv_loss_h1, latent_space, deformed_positions = optimize_epoch(
@@ -172,8 +178,25 @@ def optimize_inverse_deformations(
             deformed_positions
         )
 
-    print('Inversion loss for half 1 at iteration', epoch, inv_loss_h1)
-    print('Inversion loss for half 2 at iteration', epoch, inv_loss_h2)
+        if len(loss_list_half1) > 3:
+            if torch.mean(torch.tensor(loss_list_half1[-3:])) < inv_loss_h1:
+                learning_rate_h1 = learning_rate_h1/2
+                for g in inv_half1_optimizer.param_groups:
+                    g['lr'] = learning_rate_h1
+                print('learning rate for half1 halved to:', learning_rate_h1)
+
+        if len(loss_list_half2) > 3:
+            if torch.mean(torch.tensor(loss_list_half2[-3:])) < inv_loss_h2:
+                learning_rate_h2 = learning_rate_h2/2
+                for g in inv_half2_optimizer.param_groups:
+                    g['lr'] = learning_rate_h2
+                print('learning rate for half2 halved to:', learning_rate_h2)
+
+        loss_list_half1.append(inv_loss_h1)
+        loss_list_half2.append(inv_loss_h2)
+
+        print('Inversion loss for half 1 at iteration', epoch, inv_loss_h1)
+        print('Inversion loss for half 2 at iteration', epoch, inv_loss_h2)
 
     checkpoint = {'inv_half1': inv_half1, 'inv_half2': inv_half2,
                   'inv_half1_state_dict': inv_half1.state_dict(),

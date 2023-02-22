@@ -29,6 +29,7 @@ def explore_latent_space(
     dimensionality_reduction_method: str = 'PCA',
     inverse_deformation: Optional[str] = None,
     atomic_model: str = None,
+    reduce_by_deformation: bool = False
 ):
     # todo: @schwab implement preload images
     # load and prepare models for inference
@@ -53,36 +54,36 @@ def explore_latent_space(
             pass
         else:
             refinement_star_file = refinement_star_file / 'run_data.star'
+        # refinement_star_file = Path(
+        #    '/cephfs/aburt/dynamight-tests/stan-kmn/data/consensus_360px/particles.star')
+        #refinement_star_file = refinement_star_file / 'run_data.star'
 
+    dataframe = starfile.read(refinement_star_file)
+    circular_mask_thickness = soft_edge_width
 
-'
+    encoder = cp['encoder_' + 'half' + str(half_set)]
+    decoder = cp['decoder_' + 'half' + str(half_set)]
+    poses = cp['poses']
 
-dataframe = starfile.read(refinement_star_file)
-circular_mask_thickness = soft_edge_width
+    relion_dataset = RelionDataset(
+        path=refinement_star_file.resolve(),
+        circular_mask_thickness=soft_edge_width,
+        particle_diameter=particle_diameter,
+    )
+    dataset = relion_dataset.make_particle_dataset()
+    diameter_ang = relion_dataset.particle_diameter
+    box_size = relion_dataset.box_size
+    ang_pix = relion_dataset.pixel_spacing_angstroms
 
-encoder = cp['encoder_' + 'half' + str(half_set)]
-decoder = cp['decoder_' + 'half' + str(half_set)]
-poses = cp['poses']
+    encoder.load_state_dict(
+        cp['encoder_' + 'half' + str(half_set) + '_state_dict'])
+    decoder.load_state_dict(
+        cp['decoder_' + 'half' + str(half_set) + '_state_dict'])
+    poses.load_state_dict(cp['poses_state_dict'])
 
-relion_dataset = RelionDataset(
-    path=refinement_star_file,
-    circular_mask_thickness=soft_edge_width,
-    particle_diameter=particle_diameter,
-)
-dataset = relion_dataset.make_particle_dataset()
-diameter_ang = relion_dataset.particle_diameter
-box_size = relion_dataset.box_size
-ang_pix = relion_dataset.pixel_spacing_angstroms
+    '''Computing indices for the second half set'''
 
-encoder.load_state_dict(
-    cp['encoder_' + 'half' + str(half_set) + '_state_dict'])
-decoder.load_state_dict(
-     cp['decoder_' + 'half' + str(half_set) + '_state_dict'])
- poses.load_state_dict(cp['poses_state_dict'])
-
-  '''Computing indices for the second half set'''
-
-   if half_set == 1:
+    if half_set == 1:
         indices = cp['indices_half1'].cpu().numpy()
     else:
         inds_half1 = cp['indices_half1'].cpu().numpy()
@@ -123,13 +124,17 @@ decoder.load_state_dict(
 
     latent_dim = decoder.latent_dim
 
-    latent_space, latent_colors, point_colors = compute_latent_space_and_colors(
-        encoder, decoder, dataloader_half, poses, data_preprocessor, indices
+    latent_space, latent_colors, point_colors, feature_vec = compute_latent_space_and_colors(
+        encoder, decoder, dataloader_half, poses, data_preprocessor, indices, reduce_by_deformation
     )
     if latent_space.shape[1] > 2:
         print('Computing dimensionality reduction')
-        embedded_latent_space = compute_dimensionality_reduction(
-            latent_space, dimensionality_reduction_method)
+        if reduce_by_deformation is True:
+            embedded_latent_space = compute_dimensionality_reduction(
+                feature_vec, dimensionality_reduction_method)
+        else:
+            embedded_latent_space = compute_dimensionality_reduction(
+                latent_space, dimensionality_reduction_method)
         print('Dimensionality reduction finished')
     else:
         embedded_latent_space = latent_space.cpu().numpy()

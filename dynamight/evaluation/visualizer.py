@@ -208,11 +208,11 @@ class Visualizer:
             ex = [self.axes1.dataLim.x0, self.axes1.dataLim.x1, self.axes1.dataLim.y0,
                   self.axes1.dataLim.y1]
             h, x, y, p = plt.hist2d(
-                self.z[:, 0].numpy(), self.z[:, 1].numpy(), bins=(30, 30), cmap='hot')
+                self.z[:, 0].numpy(), self.z[:, 1].numpy(), bins=(30, 30), cmap='jet')
             self.axes1.clear()
             # axes1.hist2d(zz[:,0],zz[:,1],bins = (100,100), cmap = 'hot')
             self.axes1.imshow(
-                np.rot90(h), interpolation='gaussian', extent=ex, cmap='hot')
+                np.rot90(h), interpolation='gaussian', extent=ex, cmap='jet')
             self.axes1.scatter(
                 self.latent_closest[0], self.latent_closest[1], c='r')
             self.lat_canv.draw()

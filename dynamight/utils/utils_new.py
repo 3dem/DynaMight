@@ -213,10 +213,10 @@ class FourierImageSmoother(nn.Module):
         if A == None and B == None:
 
             self.B = torch.nn.Parameter(torch.linspace(
-                2, 3, n_classes).to(device),
+                3, 3, n_classes).to(device),
                 requires_grad=True)
             self.A = torch.nn.Parameter(torch.linspace(
-                0.003, 0.005, n_classes).to(device), requires_grad=True)
+                0.005, 0.005, n_classes).to(device), requires_grad=True)
         else:
             self.B = torch.nn.Parameter(B.to(device), requires_grad=True)
             self.A = torch.nn.Parameter(A.to(device), requires_grad=True)
@@ -225,10 +225,14 @@ class FourierImageSmoother(nn.Module):
 
     def forward(self, ims):
         R = torch.stack(self.n_classes * [self.rad_inds.to(self.device)], 0)
+        # F = torch.exp(-(1/(self.B[:, None, None])**2) *
+        #               R**2) * (self.A[0, None, None]**2)  # /self.B[:, None, None])
+        # F = torch.exp(-(1/(self.B[:, None, None])**2) *
+        #              R**2) * (torch.nn.functional.softmax(self.A[:, None, None], 0)**2)  # /self.B[:, None, None])
         F = torch.exp(-(1/(self.B[:, None, None])**2) *
-                      R**2) * (self.A[0, None, None]**2)  # /self.B[:, None, None])
+                      R**2) * (torch.max(self.A)/4*self.A[:, None, None]**2)
         FF = torch.real(torch.fft.fft2(torch.fft.fftshift(
-            F, dim=[-1, -2]), dim=[-1, -2], norm='ortho'))
+            F, dim=[-1, -2]), dim=[-1, -2], norm='ortho'))/self.B[:, None, None]
         bs = ims.shape[0]
         Filts = torch.stack(bs * [FF], 0)
         # Filts = torch.fft.ifftshift(Filts, dim=[-2, -1])
