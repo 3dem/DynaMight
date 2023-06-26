@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Wed Feb  8 11:04:24 2023
+Created on Tue May  9 09:24:11 2023
 
 @author: schwab
 """
-
 from pathlib import Path
 from typing import Optional
 import mrcfile
@@ -30,7 +29,7 @@ from .._cli import cli
 
 
 @cli.command()
-def deformable_backprojection_single(
+def deformable_backprojection_single_deformation(
     output_directory: Path,
     mask_file: Optional[Path] = None,
     refinement_star_file: Optional[Path] = None,
@@ -64,31 +63,18 @@ def deformable_backprojection_single(
         refinement_star_file = cp_vae['refinement_directory']
 
     encoder_half1 = cp_vae['encoder_half1']
-    encoder_half2 = cp_vae['encoder_half2']
     decoder_half1 = cp_vae['decoder_half1']
-    decoder_half2 = cp_vae['decoder_half2']
 
     encoder_half1.load_state_dict(cp_vae['encoder_half1_state_dict'])
-    encoder_half2.load_state_dict(cp_vae['encoder_half2_state_dict'])
     decoder_half1.load_state_dict(cp_vae['decoder_half1_state_dict'])
-    decoder_half2.load_state_dict(cp_vae['decoder_half2_state_dict'])
 
     decoder_half1.p2i.device = device
-    decoder_half2.p2i.device = device
     decoder_half1.projector.device = device
-    decoder_half2.projector.device = device
     decoder_half1.image_smoother.device = device
-    decoder_half2.image_smoother.device = device
     decoder_half1.p2v.device = device
-    decoder_half2.p2v.device = device
     decoder_half1.device = device
-    decoder_half2.device = device
     decoder_half1.to(device)
-    decoder_half2.to(device)
     encoder_half1.eval()
-    encoder_half2.eval()
-    decoder_half1.eval()
-    decoder_half2.eval()
 
     poses = cp_vae['poses']
 
@@ -107,18 +93,10 @@ def deformable_backprojection_single(
 
     inds_half1 = cp_vae['indices_half1'].cpu().numpy()
 
-    try:
-        inds_val = cp_vae['indices_val'].cpu().numpy()
-        inds_half1 = np.concatenate(
-            [inds_half1, inds_val[:inds_val.shape[0]//2]])
-    except:
-        print('no validation set given')
-
-    inds_half2 = list(set(range(len(dataset))) -
-                      set(list(inds_half1)))
-
-    dataset_half1 = torch.utils.data.Subset(dataset, inds_half1)
-    dataset_half2 = torch.utils.data.Subset(dataset, inds_half2)
+    dataset_complete = torch.utils.data.Subset(dataset, inds_half1)
+    half_len = len(dataset)//2
+    dataset_half1, dataset_half2 = torch.utils.data.dataset.random_split(
+        dataset_complete, [half_len, len(dataset)-half_len])
 
     data_loader_half1 = DataLoader(
         dataset=dataset_half1,
@@ -144,9 +122,7 @@ def deformable_backprojection_single(
     )
 
     inv_half1 = cp['inv_half1']
-    inv_half2 = cp['inv_half2']
     inv_half1.load_state_dict(cp['inv_half1_state_dict'])
-    inv_half2.load_state_dict(cp['inv_half2_state_dict'])
 
     latent_dim = inv_half1.latent_dim
 
@@ -154,22 +130,16 @@ def deformable_backprojection_single(
         rec_mask_h1 = generate_smooth_mask_from_consensus(
             decoder_half1, box_size, ang_pix, distance=100, soft_edge=5
         )
-        rec_mask_h2 = generate_smooth_mask_from_consensus(
-            decoder_half2, box_size, ang_pix, distance=100, soft_edge=5
-        )
+
     else:
         rec_mask_h1 = torch.ones(box_size, box_size, box_size).to(device)
-        rec_mask_h2 = torch.ones(box_size, box_size, box_size).to(device)
 
     def_mask_h1 = generate_smooth_mask_from_consensus(
         decoder_half1, box_size, ang_pix, distance=40, soft_edge=0
     )
-    def_mask_h2 = generate_smooth_mask_from_consensus(
-        decoder_half2, box_size, ang_pix, distance=40, soft_edge=0
-    )
 
-    def_mask = def_mask_h1 * def_mask_h2
-    rec_mask = rec_mask_h1 * rec_mask_h2
+    def_mask = def_mask_h1
+    rec_mask = rec_mask_h1
 
     if mask_file is None:
         ess_grid, out_grid, sm_bin_mask = generate_smooth_mask_and_grids(
@@ -204,7 +174,7 @@ def deformable_backprojection_single(
     )
     latent_space, latent_indices_half2 = get_latent_space_and_indices(
         data_loader_half2,
-        encoder_half2,
+        encoder_half1,
         poses,
         latent_space,
         data_preprocessor,
@@ -330,8 +300,8 @@ def deformable_backprojection_single(
 
         Vol, Filter = backproject_single_image(
             z_image=z_image,
-            decoder=decoder_half2,
-            inverse_model=inv_half2,
+            decoder=decoder_half1,
+            inverse_model=inv_half1,
             grid=smallgrid,
             interpolate_field=fwd_int,
             rotation=rotation,
@@ -364,7 +334,7 @@ def deformable_backprojection_single(
                 name=backprojection_directory /
                 f'reconstruction_half2_{nr:03}.mrc',
                 data=(VV2).float().cpu().numpy(),
-                voxel_size=decoder_half2.ang_pix,
+                voxel_size=decoder_half1.ang_pix,
                 overwrite=True,
             )
 
@@ -380,7 +350,7 @@ def deformable_backprojection_single(
 
     with mrcfile.new(backprojection_directory / 'map_half2.mrc', overwrite=True) as mrc:
         mrc.set_data((V).float().detach().cpu().numpy())
-        mrc.voxel_size = decoder_half2.ang_pix
+        mrc.voxel_size = decoder_half1.ang_pix
     del V, filter
 
     with mrcfile.open(backprojection_directory / 'map_half1.mrc') as mrc:

@@ -12,6 +12,7 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 import mrcfile
+from ..utils.utils_new import field2bild
 
 
 def get_ess_grid(grid, points, box_size, edge=600):
@@ -332,6 +333,11 @@ def backproject_single_image(
 
     device = decoder.device
     box_size = decoder.box_size
+    ginv = torch.linspace(-0.5, 0.5, box_size // 16)
+    Ginv = torch.meshgrid(ginv, ginv, ginv)
+    invgrid = torch.stack(
+        [Ginv[0].ravel(), Ginv[1].ravel(), Ginv[2].ravel()], 1)
+
     with torch.no_grad():
         if do_deformations is True:
             z_image = torch.stack(2*[z_image], 0).to(device)
@@ -345,7 +351,12 @@ def backproject_single_image(
             disp = torch.stack(
                 [disp0.squeeze(), disp1.squeeze(), disp2.squeeze()], 3)
             dis_grid = disp[None, :, :, :]
-
+        # if idx.item() % 1000 == 0:
+        #     with torch.no_grad():
+        #         inv_defo = inverse_model(z_image, torch.stack(
+        #             2 * [invgrid.to(device)], 0))
+        #         field2bild(invgrid.cpu(), inv_defo[0].cpu(), '/cephfs/schwab/field' +
+        #                    str(idx.item()), decoder.box_size, decoder.ang_pix)
         r, t = poses(idx)
         batch_size = y.shape[0]
         # ctfs_l = torch.nn.functional.pad(ctf, (
@@ -413,5 +424,11 @@ def backproject_single_image(
                                mode='bilinear', align_corners=True)
         else:
             Vy = Vy[:-1, :-1, :-1]
+        # if idx.item()%1000 ==0:
+        #     mrcfile.write(
+        #         name='/cephfs/schwab/single_bp'+str(idx.item())+'.mrc',
+        #         data=(Vy[0,0]).float().cpu().numpy(),
+        #         voxel_size=decoder.ang_pix,
+        #         overwrite=True)
 
         return Vy, CTFy
