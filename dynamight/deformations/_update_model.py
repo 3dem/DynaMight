@@ -30,14 +30,21 @@ def update_model_positions(
 
     data_loader_sub = DataLoader(
         dataset=sub_data,
-        batch_size=20,
-        num_workers=8,
+        batch_size=batch_size,
+        num_workers=4,
         shuffle=False,
         pin_memory=False
     )
     device = decoder.device
-    new_positions = torch.zeros(
-        decoder.model_positions.shape[0], decoder.model_positions.shape[1]).to(device)
+    if decoder.warmup == False and decoder.mask != None:
+        new_positions = torch.zeros(
+            decoder.unmasked_positions.shape[0], decoder.unmasked_positions.shape[1]).to(device)
+    else:
+        new_positions = torch.zeros(
+            decoder.model_positions.shape[0], decoder.model_positions.shape[1]).to(device)
+
+    print('Updating model by averaging over', consensus_update_pooled_particles,
+          'particles closest to the current consensus model')
     with torch.no_grad():
         for batch_ndx, sample in enumerate(data_loader_sub):
             r, y, ctf, shift = sample["rotation"], sample["image"], \
@@ -59,6 +66,7 @@ def update_model_positions(
             ctf = torch.fft.fftshift(ctf, dim=[-1, -2])
 
             mu, logsigma = encoder(y_in, ctf)
+            #mu, logsigma, denois1, out1, target1 = encoder(y_in, ctf)
 
             z = mu + torch.exp(0.5 * logsigma) * torch.randn_like(mu)
             z_in = z
@@ -68,6 +76,10 @@ def update_model_positions(
                 shift.to(
                     device))
             new_positions += torch.sum(new_points, 0).detach()
-
         new_positions /= consensus_update_pooled_particles
+        if decoder.warmup == False and decoder.mask != None:
+            combined_pos = decoder.model_positions
+            combined_pos[decoder.active_indices, :] = new_positions
+            new_positions = combined_pos
+
         return new_positions

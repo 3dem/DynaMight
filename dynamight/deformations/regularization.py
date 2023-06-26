@@ -1,12 +1,13 @@
 import torch
 from torch.utils.data import DataLoader
+import numpy as np
 
 from ..models.constants import ConsensusInitializationMode, RegularizationMode
 from ..models.encoder import HetEncoder
 from ..models.decoder import DisplacementDecoder
 from ..data.handlers.particle_image_preprocessor import ParticleImagePreprocessor
 from ..models.losses import GeometricLoss
-from ..utils.utils_new import fourier_loss
+from ..utils.utils_new import fourier_loss, power_spec2
 
 
 def calibrate_regularization_parameter(
@@ -19,8 +20,11 @@ def calibrate_regularization_parameter(
     data_normalization_mask: torch.Tensor,
     lambda_regularization: torch.Tensor,
     mode: RegularizationMode,
+    edge_weights,
+    edge_weights_dis,
     subset_percentage: float = 10,
     batch_size: int = 100,
+    recompute_data_normalization=False
 ):
     """Compute a regularisation parameter for the geometry regularisation function.
 
@@ -63,19 +67,38 @@ def calibrate_regularization_parameter(
         particle_shifts=particle_shifts,
         lambda_regularization=lambda_regularization,
         mode=mode,
+        edge_weights=edge_weights,
+        edge_weights_dis=edge_weights_dis
     )
-    data_norm = _compute_data_norm(
-        dataloader=dataloader,
-        data_preprocessor=data_preprocessor,
-        encoder=encoder,
-        decoder=decoder,
-        particle_euler_angles=particle_euler_angles,
-        particle_shifts=particle_shifts,
-        data_normalization_mask=data_normalization_mask,
-    )
+    if recompute_data_normalization == True:
+        data_norm, Sig, Err = _compute_data_norm(
+            dataloader=dataloader,
+            data_preprocessor=data_preprocessor,
+            encoder=encoder,
+            decoder=decoder,
+            particle_euler_angles=particle_euler_angles,
+            particle_shifts=particle_shifts,
+            data_normalization_mask=data_normalization_mask,
+            recompute_data_normalization=recompute_data_normalization
+        )
+
+    else:
+        data_norm = _compute_data_norm(
+            dataloader=dataloader,
+            data_preprocessor=data_preprocessor,
+            encoder=encoder,
+            decoder=decoder,
+            particle_euler_angles=particle_euler_angles,
+            particle_shifts=particle_shifts,
+            data_normalization_mask=data_normalization_mask,
+            recompute_data_normalization=recompute_data_normalization,
+        )
     print('data_norm:', data_norm)
     print('geometry_norm:', geometry_norm)
-    return (0.5 * (data_norm / geometry_norm))
+    if recompute_data_normalization == True:
+        return (0.5 * (data_norm / np.maximum(geometry_norm, 0.1*data_norm))), Sig, Err
+    else:
+        return (0.5 * (data_norm / np.maximum(geometry_norm, 0.1*data_norm)))
 
 
 def _compute_data_norm(
@@ -86,7 +109,11 @@ def _compute_data_norm(
     particle_euler_angles: torch.nn.Parameter,
     particle_shifts: torch.nn.Parameter,
     data_normalization_mask: torch.Tensor,
+    recompute_data_normalization,
 ):
+    Sig = torch.zeros(decoder.box_size, decoder.box_size).to(decoder.device)
+    Err = torch.zeros_like(Sig)
+    count = 1
     """Compute the data norm part of the loss function calibration."""
     for batch_ndx, sample in enumerate(dataloader):
         # zero gradients
@@ -112,6 +139,7 @@ def _compute_data_norm(
         ctf = torch.fft.fftshift(ctf, dim=[-1, -2])
 
         mu, logsigma = encoder(y_in, ctf)
+        # mu, logsigma, denois1, out1, target1 = encoder(y_in, ctf)
         z = mu + torch.exp(0.5 * logsigma) * torch.randn_like(mu)
         z_in = z
         Proj, new_points, deformed_points = decoder(z_in, r, shift)
@@ -130,18 +158,37 @@ def _compute_data_norm(
         # calculate norm of gradients
 
         with torch.no_grad():
+            if recompute_data_normalization == True:
+                yf = torch.fft.fft2(torch.fft.fftshift(
+                    y, dim=[-1, -2]), dim=[-1, -2], norm='ortho')
+                Projf = torch.multiply(Proj, ctf)
+                SR, sr = power_spec2(
+                    (yf-Projf), batch_reduce='mean')
+                S2, s2 = power_spec2(y, batch_reduce='mean')
+                count += 1
+                try:
+                    ssig += s2
+                    serr += sr
+                except:
+                    ssig = s2
+                    serr = sr
+                Sig += S2
+                Err += SR
 
             try:
                 total_norm = 0
 
-                for p in decoder.parameters():
+                for p in decoder.network_parameters:
                     if p.requires_grad == True and p.grad != None:
                         param_norm = p.grad.detach().data.norm(2)
                         total_norm += param_norm.item() ** 2
                 data_norm += total_norm ** 0.5
             except:
                 data_norm = 1
-    return data_norm
+    if recompute_data_normalization == True:
+        return data_norm, Sig/count, Err/count
+    else:
+        return data_norm
 
 
 def _compute_geometry_norm(
@@ -153,6 +200,8 @@ def _compute_geometry_norm(
     particle_shifts: torch.nn.Parameter,
     lambda_regularization: torch.nn.Parameter,
     mode: RegularizationMode,
+    edge_weights,
+    edge_weights_dis,
 ):
     geometry_norm = 0
     geometric_loss = GeometricLoss(
@@ -160,7 +209,8 @@ def _compute_geometry_norm(
         neighbour_loss_weight=0.0,
         repulsion_weight=0.01,
         outlier_weight=0.0,
-        deformation_regularity_weight=1,
+        deformation_regularity_weight=1.0,
+        deformation_coherence_weight=0.
     )
     for batch_ndx, sample in enumerate(dataloader):
         # zero gradients
@@ -187,6 +237,7 @@ def _compute_geometry_norm(
 
         # pass data through model
         mu, logsigma = encoder(y_in, ctf)
+        # mu, logsigma, denois1, out1, target1 = encoder(y_in, ctf)
         z = mu + torch.exp(0.5 * logsigma) * torch.randn_like(mu)
         z_in = z
         Proj, new_points, deformed_points = decoder(z_in, r, shift)
@@ -194,6 +245,7 @@ def _compute_geometry_norm(
         # compute loss
         geo_loss = geometric_loss(
             deformed_positions=new_points,
+            displacements=deformed_points,
             mean_neighbour_distance=decoder.mean_neighbour_distance,
             mean_graph_distance=decoder.mean_graph_distance,
             consensus_pairwise_distances=decoder.model_distances,
@@ -201,7 +253,9 @@ def _compute_geometry_norm(
             radius_graph=decoder.radius_graph,
             box_size=decoder.box_size,
             ang_pix=decoder.ang_pix,
-            active_indices=decoder.active_indices
+            active_indices=decoder.active_indices,
+            edge_weights=edge_weights,
+            edge_weights_dis=edge_weights_dis
         )
         try:
             geo_loss.backward()
@@ -213,7 +267,7 @@ def _compute_geometry_norm(
             try:
                 total_norm = 0
 
-                for p in decoder.parameters():
+                for p in decoder.network_parameters:
                     if p.requires_grad == True and p.grad != None:
                         param_norm = p.grad.detach().data.norm(2)
                         total_norm += param_norm.item() ** 2
