@@ -23,6 +23,7 @@ import mrcfile
 from ..data.dataloaders.relion import RelionDataset
 from scipy.special import comb
 from sklearn.neighbors import kneighbors_graph, radius_neighbors_graph
+from scipy.spatial import KDTree
 
 '-----------------------------------------------------------------------------'
 'CTF and Loss Functions'
@@ -48,12 +49,16 @@ def fourier_loss(x, y, ctf, W=None, sig=None):
     y = torch.fft.fft2(torch.fft.fftshift(
         y, dim=[-1, -2]), dim=[-1, -2], norm='ortho')
     x = torch.multiply(x, ctf)
-    if W != None:
-        y = torch.multiply(y, W)
+    # if W != None:
+    #    y = torch.multiply(y, W)
     # else:
     #     x = torch.multiply(x,ctf)
-    l = torch.mean(torch.pow(torch.mean(
-        torch.abs(x - y) ** 2, dim=[-1, -2]), 0.5))
+    if W != None:
+        l = torch.mean(torch.mean(
+            torch.multiply(W, torch.abs(x - y) ** 2), dim=[-1, -2]))
+    else:
+        l = torch.mean(torch.mean(
+            torch.abs(x - y) ** 2, dim=[-1, -2]))
     return l
 
 
@@ -210,16 +215,19 @@ class FourierImageSmoother(nn.Module):
         self.n_classes = n_classes
         self.rad_inds, self.rad_mask = radial_index_mask(
             oversampling * box_size)
+
         if A == None and B == None:
 
             self.B = torch.nn.Parameter(torch.linspace(
-                3, 3, n_classes).to(device),
+                self.box_size/60, self.box_size/60, n_classes).to(device),
                 requires_grad=True)
             self.A = torch.nn.Parameter(torch.linspace(
-                0.005, 0.005, n_classes).to(device), requires_grad=True)
+                0.1, 0.1, n_classes).to(device), requires_grad=True)
+
         else:
             self.B = torch.nn.Parameter(B.to(device), requires_grad=True)
-            self.A = torch.nn.Parameter(A.to(device), requires_grad=True)
+            self.A = torch.nn.Parameter(A.to(device), requires_grad=False)
+
         self.os = oversampling
         self.crop = fourier_crop
 
@@ -230,9 +238,11 @@ class FourierImageSmoother(nn.Module):
         # F = torch.exp(-(1/(self.B[:, None, None])**2) *
         #              R**2) * (torch.nn.functional.softmax(self.A[:, None, None], 0)**2)  # /self.B[:, None, None])
         F = torch.exp(-(1/(self.B[:, None, None])**2) *
-                      R**2) * (torch.max(self.A)/4*self.A[:, None, None]**2)
+                      R**2)  # * (torch.nn.functional.softmax(self.A[:, None, None], 0))
+        # F = torch.exp(-(1/(self.B[:, None, None])**2) *
+        #               R**2) * (self.A[:, None, None]**2)
         FF = torch.real(torch.fft.fft2(torch.fft.fftshift(
-            F, dim=[-1, -2]), dim=[-1, -2], norm='ortho'))/self.B[:, None, None]
+            F, dim=[-1, -2]), dim=[-1, -2], norm='ortho'))*(self.A[:, None, None]**2)/self.B[:, None, None]
         bs = ims.shape[0]
         Filts = torch.stack(bs * [FF], 0)
         # Filts = torch.fft.ifftshift(Filts, dim=[-2, -1])
@@ -277,10 +287,13 @@ def radial_index_mask(box_size):
     return R.long(), Mask
 
 
-def radial_index_mask3(box_size):
-
-    x = torch.tensor(
-        np.linspace(-box_size, box_size, box_size, endpoint=False))
+def radial_index_mask3(box_size, scale=None):
+    if scale == None:
+        x = torch.tensor(
+            np.linspace(-box_size, box_size, box_size, endpoint=False))
+    else:
+        x = torch.tensor(
+            np.linspace(-scale*box_size, scale*box_size, box_size, endpoint=False))
     X, Y, Z = torch.meshgrid(x, x, x)
     R = torch.round(torch.sqrt(X ** 2 + Y ** 2 + Z ** 2))
     Mask = R < (x[-1])
@@ -404,16 +417,14 @@ def frc(x, y, ctf, batch_reduce='sum'):
     batch_size = x.shape[0]
     eps = 1e-8
     ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
-    # end_ind = torch.round(torch.tensor(N/2)).long()
+
     X, Y = torch.meshgrid(ind, ind)
     R = torch.cat(batch_size * [torch.fft.fftshift(torch.round(
         torch.pow(X ** 2 + Y ** 2, 0.5)).long()).unsqueeze(0)], 0).to(device)
-    # num = scatter(torch.real(x*torch.conj(y)).flatten(start_dim=-2),
-    #              R.flatten(start_dim=-2), reduce='mean')
+
     num = scatter_mean(torch.real(x * torch.conj(y)).flatten(start_dim=-2),
                        R.flatten(start_dim=-2))
-    # den = torch.pow(scatter(torch.abs(x.flatten(start_dim=-2))**2, R.flatten(start_dim=-2), reduce='mean')
-    #                * scatter(torch.abs(y.flatten(start_dim=-2))**2, R.flatten(start_dim=-2), reduce='mean'), 0.5)
+
     den = torch.pow(
         scatter_mean(torch.abs(x.flatten(start_dim=-2))
                      ** 2, R.flatten(start_dim=-2))
@@ -563,8 +574,11 @@ def write_xyz(
 ):
     # turn class IDs into atom specifiers for coloring
     points = box_size * ang_pix * (0.5 + points.detach().data.cpu().numpy())
-    atom_spec = np.array(['C', 'O', 'N', 'H', 'S'] + ['C'] * 200)
-    atom_idx = class_id.detach().cpu().numpy().astype(int)
+    atom_spec = np.array(['C', 'O', 'N', 'H', 'S', 'Se', 'O1'] + ['C'] * 200)
+    if torch.is_tensor(class_id) == True:
+        atom_idx = class_id.detach().cpu().numpy().astype(int)
+    else:
+        atom_idx = class_id.astype(int)
     atoms = atom_spec[atom_idx]
 
     # write out file
@@ -574,18 +588,25 @@ def write_xyz(
             f.write("%s %.18g %.18g %.18g\n" % (atom, x[0], x[1], x[2]))
 
 
-def graph2bild(points, edge_index, title, color=5):
+def graph2bild(points, edge_index, title, edge_thickness=None, color=5):
     points = points.detach().cpu().numpy()
     with open(title, 'a') as f:
         for k in range(points.shape[0]):
             f.write("%s %.18g %.18g %.18g %.18g\n" %
-                    ('.sphere', points[k, 0], points[k, 1], points[k, 2], 0.01))
+                    ('.sphere', points[k, 0], points[k, 1], points[k, 2], 0.02))
         y = np.concatenate([points[edge_index[0].cpu().numpy()],
                             points[edge_index[1].cpu().numpy()]], 1)
         f.write('%s %.18g\n' % ('.color', color))
+        if edge_thickness != None:
+            edge_thickness = edge_thickness.cpu()
         for k in range(y.shape[0]):
+            if edge_thickness != None:
+                t = edge_thickness[k]
+            else:
+                t = 0.01
+            f.write('%s %.18g\n' % ('.color', t))
             f.write("%s %.18g %.18g %.18g %.18g %.18g %.18g %.18g\n" % (
-                '.cylinder', y[k, 0], y[k, 1], y[k, 2], y[k, 3], y[k, 4], y[k, 5], 0.6))
+                '.cylinder', y[k, 0], y[k, 1], y[k, 2], y[k, 3], y[k, 4], y[k, 5], 0.02))
 
 
 def graphs2bild(total_points, points, edge_indices, amps, title, box_size, ang_pix):
@@ -600,10 +621,8 @@ def graphs2bild(total_points, points, edge_indices, amps, title, box_size, ang_p
         points = points / (box_size * ang_pix) - 0.5
         f.write('%s %.18g\n' % ('.color', color))
         if edge_index != None:
-            print(points.shape)
             y = np.concatenate([total_points[edge_index[0].cpu(
             ).numpy()], total_points[edge_index[1].cpu().numpy()]], 1)
-            print(y.shape)
             for k in range(y.shape[0]):
                 f.write("%s %.18g %.18g %.18g %.18g %.18g %.18g %.18g\n" % (
                     '.cylinder', y[k, 0], y[k, 1], y[k,
@@ -618,33 +637,40 @@ def graphs2bild(total_points, points, edge_indices, amps, title, box_size, ang_p
     f.close()
 
 
-def field2bild(points, field, title, box_size, ang_pix):
+def field2bild(points, field, uncertainty, title, box_size, ang_pix):
     f = open(title + '.bild', 'a')
-    color = 8
+    color = 18
     cols = torch.linalg.norm(points - field, dim=1)
     points = points.detach().cpu().numpy()
     points = (points + 0.5) * box_size * ang_pix
+    uncertainty = uncertainty*box_size*ang_pix
+    cols = torch.round((uncertainty/20 * 45)).long()
     field = field.detach().cpu().numpy()
     field = (field + 0.5) * box_size * ang_pix
     y = np.concatenate([points, field], 1)
-    cols = torch.round(cols / torch.max(cols) * 65).long()
+    #cols = torch.round(cols / torch.max(cols) * 65).long()
     for k in range(y.shape[0]):
-        f.write('%s %.18g\n' % ('.color', cols[k]))
-        f.write("%s %.18g %.18g %.18g %.18g %.18g %.18g %.18g\n" % (
-            '.arrow', y[k, 0], y[k, 1], y[k, 2], y[k, 3], y[k, 4], y[k, 5], 0.04))
+        f.write('%s %.18g\n' % ('.color', color))
+        f.write("%s %.18g %.18g %.18g %.18g %.18g %.18g %.18g\n %.18g\n %.18g\n" % (
+            '.arrow', y[k, 0], y[k, 1], y[k, 2], y[k, 3], y[k, 4], y[k, 5], 0.5, 1, 0.5))
+    # f.write('%s %.18g\n' % ('.transparency', 0.6))
+    # for k in range(y.shape[0]):
+    #     f.write('%s %.18g\n' % ('.color', cols[k]))
+    #     f.write("%s %.18g %.18g %.18g %.18g\n" % (
+    #         '.sphere', y[k, 3], y[k, 4], y[k, 5], uncertainty[k]))
     f.close()
 
 
 def points2bild(points, amps, title, box_size, ang_pix):
     f = open(title + '.bild', 'a')
-    color = 8
+    color = 19
     for points, amps in zip(points, amps):
         points = points.detach().cpu().numpy()
         points = (points + 0.5) * box_size * ang_pix
         f.write('%s %.18g\n' % ('.color', color))
         for k in range(points.shape[0]):
             f.write("%s %.18g %.18g %.18g %.18g\n" % (
-                '.sphere', points[k, 0], points[k, 1], points[k, 2], 0.02 * amps[k]))
+                '.sphere', points[k, 0], points[k, 1], points[k, 2], 4))  # * amps[k]))
         color = color + 20
     f.close()
 
@@ -655,7 +681,6 @@ def series2xyz(points, title, box_size, ang_pix):
             (0.5 + points.detach().data.cpu().numpy())
     atomtype = ("C",)
     for i in range(points.shape[0]):
-        print(i)
         pp = points[i].squeeze()
         f = open(title + '.xyz', 'a')
         f.write("%d\n%s\n" % (points[i].size / 3, title))
@@ -668,16 +693,15 @@ def power_spec2(F1, batch_reduce=None):
     if F1.is_complex():
         pass
     else:
-        F1 = torch.fft.fftn(F1, dim=[-2, -1])
+        F1 = torch.fft.fft2(torch.fft.fftshift(
+            F1, dim=[-1, -2]), dim=[-2, -1], norm='ortho')
+    device = F1.device
     N = F1.shape[-1]
-    ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
+    ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N).to(device)
     end_ind = torch.round(torch.tensor(N / 2)).long()
     X, Y = torch.meshgrid(ind, ind)
     R = torch.fft.fftshift(torch.round(torch.pow(X ** 2 + Y ** 2, 0.5)).long())
-    res = torch.arange(start=0, end=end_ind) ** 2,
-    # p_s = scatter(torch.abs(F1.flatten(start_dim=-2)**2),
-    #              R.flatten().to(F1.device), reduce='mean')
-    p_s = scatter_mean(torch.abs(F1.flatten(start_dim=-2) ** 2),
+    p_s = scatter_mean(torch.abs(F1.flatten(start_dim=-2)) ** 2,
                        R.flatten().to(F1.device))
     if batch_reduce == 'mean':
         p_s = torch.mean(p_s, 0)
@@ -696,8 +720,6 @@ def radial_avg2(F1, batch_reduce=None):
     X, Y = torch.meshgrid(ind, ind)
     R = torch.fft.fftshift(torch.round(torch.pow(X ** 2 + Y ** 2, 0.5)).long())
     res = torch.arange(start=0, end=end_ind) ** 2,
-    # p_s = scatter(torch.abs(F1.flatten(start_dim=-2)),
-    #               R.flatten().to(F1.device), reduce='mean')
     p_s = scatter_mean(torch.abs(F1.flatten(start_dim=-2)),
                        R.flatten().to(F1.device))
     if batch_reduce == 'mean':
@@ -742,7 +764,6 @@ def RadialAvgProfile(F1, batch_reduce=None):
     else:
         F1 = torch.fft.fftn(F1, dim=[-3, -2, -1])
     device = F1.device
-    print(device)
     N = F1.shape[-1]
     ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
     end_ind = torch.round(torch.tensor(N / 2)).long()
@@ -752,8 +773,6 @@ def RadialAvgProfile(F1, batch_reduce=None):
     res = torch.arange(start=0, end=end_ind) ** 2,
 
     if len(F1.shape) == 3:
-        # p_s = scatter(torch.abs(F1.flatten(start_dim=-3)),
-        #               R.flatten(), reduce='mean')
         p_s = scatter_mean(torch.abs(F1.flatten(start_dim=-3)),
                            R.flatten())
     Prof = torch.zeros_like(R).float().to(device)
@@ -922,29 +941,14 @@ def add_weight_decay_to_named_parameters(
     for name, param in model.named_parameters():
         if not param.requires_grad:
             continue
-        if 'weight' not in name:
+        if 'weight' not in name and name not in ['image_smoother.A', 'image_smoother.B', 'amp', 'ampvar', 'model_positions']:
             no_decay.append(param)
-        else:
+        elif name not in ['image_smoother.A', 'image_smoother.B', 'amp', 'ampvar', 'model_positions']:
             decay.append(param)
     return [
         {'params': no_decay, 'weight_decay': 0.},
         {'params': decay, 'weight_decay': weight_decay}
     ]
-
-
-# def add_weight_decay_to_named_parameters(model, weight_decay=1e-5):
-#     decay = []
-#     no_decay = []
-#     for name, param in model.named_parameters():
-#         if not param.requires_grad:
-#             continue
-#         if 'weight' not in name:
-#             no_decay.append(param)
-#         else:
-#             decay.append(param)
-#     return [
-#         {'params': no_decay, 'weight_decay': 0.},
-#         {'params': decay, 'weight_decay': weight_decay}]
 
 
 def pdb2points(name, random=False):
@@ -1131,8 +1135,7 @@ def initial_optimization(cons_model, atom_model, device, directory, angpix, N_ep
             cons_model.ampvar, dim=0), dim=0)
         write_xyz(cons_model.pos, '/cephfs/schwab/approximation/positions' +
                   str(i).zfill(3), box_size, angpix, types)
-        # print(torch.nn.functional.mse_loss(V[0],V0.detach()).detach())
-        # print(f1(lay(coarse_model.pos)).detach())
+
         loss.backward()
         coarse_optimizer.step()
 
@@ -1158,28 +1161,21 @@ def load_models(path, device, box_size, n_classes):
     poses = cp['poses']
     encoder_half1.load_state_dict(cp['encoder_half1_state_dict'])
     encoder_half2.load_state_dict(cp['encoder_half2_state_dict'])
-    # cons_model.load_state_dict(cp['consensus_state_dict'])
     decoder_half1.load_state_dict(cp['decoder_half1_state_dict'])
     decoder_half2.load_state_dict(cp['decoder_half2_state_dict'])
     poses.load_state_dict(cp['poses_state_dict'])
-    # cons_model.p2i.device = device
     decoder_half1.p2i.device = device
     decoder_half2.p2i.device = device
-    # cons_model.proj.device = device
     decoder_half1.projector.device = device
     decoder_half2.projector.device = device
-    # cons_model.i2F.device = device
     decoder_half1.image_smoother.device = device
     decoder_half2.image_smoother.device = device
-    # cons_model.p2v.device = device
     decoder_half1.p2v.device = device
     decoder_half1.device = device
     decoder_half2.p2v.device = device
     decoder_half2.device = device
-    # cons_model.device = device
     decoder_half1.to(device)
     decoder_half2.to(device)
-    # cons_model.to(device)
 
     return encoder_half1, encoder_half2, decoder_half1, decoder_half2
 
@@ -1203,7 +1199,7 @@ def reset_all_linear_layer_weights(model: nn.Module) -> nn.Module:
 
 class spatial_grad(nn.Module):
     # For TV regularization
-    def __init__(self, spatial_grad, box_size):
+    def __init__(self, box_size):
         super(spatial_grad, self).__init__()
         self.box_size = box_size
 
@@ -1352,3 +1348,78 @@ def generate_data_normalization_mask(box_size, dampening_factor, device):
         torch.exp(-(dampening_factor * (XX ** 2 + YY ** 2))), dim=[-1, -2]).to(
         device)
     return BF
+
+
+def remove_bidirectional_edges(gr):
+    gr_sort1 = torch.sort(gr, dim=0)[0]
+    gr_out = torch.unique(gr_sort1, dim=1)
+    return gr_out
+
+
+def graph_union(gr1, gr2):
+    # undir_gr1 = torch.stack([gr1[1],gr1[0]],0)
+    # undir_gr2 = torch.stack([gr2[1],gr2[0]],0)
+    combined_gr = torch.cat([gr1, gr2], 1)
+    union_gr = torch.unique(combined_gr, dim=1)
+    union_gr = remove_bidirectional_edges(union_gr)
+    return union_gr
+
+
+def mask_from_positions(positions, box_size, ang_pix, distance):
+    "generate mask from consensus gaussian model with mask being 1 if voxel center closer than distance (in angstrom) from a gaussian center"
+    device = positions.device
+    if box_size > 200:
+        new_box = box_size//2
+        new_ang_pix = ang_pix/2
+        points = (positions*(box_size-1))/ang_pix
+    else:
+        new_box = box_size
+        new_ang_pix = ang_pix
+        points = (positions*(box_size-1))/ang_pix
+    x = (torch.linspace(-0.5, 0.5, new_box)*(box_size-1))/ang_pix
+    grid = torch.meshgrid(x, x, x)
+    grid = torch.stack([grid[0].ravel(), grid[1].ravel(), grid[2].ravel()], 1)
+    tree = KDTree(points.detach().cpu().numpy())
+    (dists, points) = tree.query(grid.cpu().numpy())
+    ess_grid = grid[dists < distance]
+    ess_grid_int = torch.clip(torch.round(
+        (ess_grid - torch.min(grid))*new_ang_pix).long(), max=new_box-1)
+    M = torch.zeros(new_box, new_box, new_box)
+    M[ess_grid_int[:, 0], ess_grid_int[:, 1], ess_grid_int[:, 2]] = 1
+    if box_size > 200:
+        M = torch.nn.functional.upsample_nearest(M[None, None], scale_factor=2)
+    return M[0, 0].to(device)
+
+
+def count_interior_points(positions, mask, box_size, ang_pix):
+    device = positions.device
+    points = (positions+0.5)*(box_size-1)
+    #MM = torch.zeros_like(mask)
+    point_inds = torch.clip(torch.round(points).long(),
+                            min=0, max=box_size - 1)
+    # MM[point_inds[0, :, 2], point_inds[0, :, 1], point_inds[0, :, 0]] = 1
+    # with mrcfile.new('/cephfs/schwab/bugtest' + 'points.mrc', overwrite=True) as mrc:
+    #     mrc.set_data(MM.cpu().float().numpy())
+    #     mrc.voxel_size = ang_pix
+    count = torch.sum(
+        mask[point_inds[:, :, 2], point_inds[:, :, 1], point_inds[:, :, 0]], 1)
+
+    return count
+
+
+def generate_latent_units(latent_dim):
+    I = torch.eye(latent_dim)
+    return I
+
+
+def compute_input_latents(decoder, r, t, ctf, input_ims):
+    bs = r.shape[0]
+    E = torch.stack(
+        bs*[generate_latent_units(decoder.latent_dim)]).to(decoder.device)
+    ims, _, _ = decoder(E, r, t)
+    input_ims = apply_ctf(input_ims, ctf)
+    y = input_ims.flatten(start_dim=1)
+    A = ims.flatten(start_dim=2)
+    ATA = A.transpose(1, 2)
+    lat = torch.linalg.solve(ATA, y)
+    return lat
