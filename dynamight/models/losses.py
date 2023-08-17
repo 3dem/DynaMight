@@ -10,21 +10,24 @@ class GeometricLoss:
     def __init__(
         self,
         mode: RegularizationMode,
-        neighbour_loss_weight: float = 0.01,
+        neighbour_loss_weight: float = 0.0,
         repulsion_weight: float = 0.01,
-        outlier_weight: float = 1,
-        deformation_regularity_weight: float = 0.1,
+        outlier_weight: float = 0.0,
+        deformation_regularity_weight: float = 1.,
+        deformation_coherence_weight: float = 0.,
     ):
         self.mode = mode
         self.neighbour_loss_weight = neighbour_loss_weight
         self.repulsion_weight = repulsion_weight
         self.outlier_weight = outlier_weight
         self.deformation_regularity_weight = deformation_regularity_weight
+        self.deformation_coherence_weight = deformation_coherence_weight
         print('mode is:', self.mode)
 
     def __call__(
         self,
         deformed_positions: torch.Tensor,
+        displacements: torch.Tensor,
         mean_neighbour_distance: float,
         mean_graph_distance: float,
         consensus_pairwise_distances: torch.Tensor,
@@ -33,21 +36,31 @@ class GeometricLoss:
         box_size: int,
         ang_pix: float,
         active_indices: torch.Tensor,
+        edge_weights=None,
+        edge_weights_dis=None,
     ) -> float:
 
-        # if len(active_indices) > 0:
-        #    positions_angstroms = deformed_positions[:, active_indices, :] * \
-        #        box_size * ang_pix
-        # else:
         positions_angstroms = deformed_positions * \
             box_size * ang_pix
+
         deformation_regularity_loss = self.calculate_deformation_regularity_loss(
             positions=positions_angstroms,
             radius_graph=radius_graph,
             consensus_pairwise_distances=consensus_pairwise_distances,
-            active_indices=active_indices
+            active_indices=active_indices,
+            edge_weights=edge_weights_dis,
         )
-        loss = self.deformation_regularity_weight * deformation_regularity_loss
+
+        deformation_coherence_loss = self.calculate_deformation_coherence_loss(
+            positions=positions_angstroms,
+            displacements=displacements,
+            radius_graph=radius_graph,
+            active_indices=active_indices,
+            edge_weights=edge_weights,
+        )
+
+        loss = self.deformation_regularity_weight * deformation_regularity_loss + \
+            self.deformation_coherence_weight * deformation_coherence_loss
         if self.mode != RegularizationMode.MODEL:
             neighbour_loss = self.calculate_neighbour_loss(
                 positions=positions_angstroms,
@@ -70,13 +83,6 @@ class GeometricLoss:
                 + self.repulsion_weight * repulsion_loss
                 + self.outlier_weight * outlier_loss
             )
-            # a = torch.randint(0, 1000, (2, 2))
-            # if a[0, 0] > 500:
-            #     print('deformation_loss:', self.deformation_regularity_weight *
-            #           deformation_regularity_loss)
-            #     print('neighbour_loss:', self.neighbour_loss_weight*neighbour_loss)
-            #     print('repulsion_loss:', self.repulsion_weight*repulsion_loss)
-            #     print('outlier_loss:', self.outlier_weight*outlier_loss)
 
         return loss
 
@@ -138,7 +144,6 @@ class GeometricLoss:
 
         # add quadratic penalty for distance being greater than cutoff
         x1 = torch.clamp(distances, max=cutoff_distance)
-        # print(torch.min(x1))
         x1 = torch.abs(x1 - cutoff_distance)
         return torch.mean(x1)
 
@@ -161,7 +166,8 @@ class GeometricLoss:
         positions: torch.Tensor,
         radius_graph: torch.Tensor,
         consensus_pairwise_distances: torch.Tensor,
-        active_indices: torch.Tensor
+        active_indices: torch.Tensor,
+        edge_weights
     ):
         """Average difference in pairwise distance between consensus and updated model."""
         differences = positions[:, radius_graph[0]] - \
@@ -170,7 +176,22 @@ class GeometricLoss:
         difference_in_pairwise_distances = (
             distances - consensus_pairwise_distances) ** 2
 
-        return torch.mean(difference_in_pairwise_distances)
+        return torch.mean(edge_weights*difference_in_pairwise_distances)
+
+    def calculate_deformation_coherence_loss(
+        self,
+        positions: torch.Tensor,
+        displacements: torch.Tensor,
+        radius_graph: torch.Tensor,
+        active_indices: torch.Tensor,
+        edge_weights
+    ):
+        """Average difference in pairwise distance between consensus and updated model."""
+        differences = displacements[:, radius_graph[0]] - \
+            displacements[:, radius_graph[1]]
+        distances = torch.sum(differences ** 2, dim=-1)
+
+        return torch.mean(edge_weights*distances)
 
 
 def _distance_activation(pairwise_distances, mean_neighbour_distance):
@@ -191,3 +212,8 @@ def _neighbour_activation(neighbours_per_point, minimum: float = 1, maximum: flo
     x1 = (x1 - minimum) ** 2
     x2 = (x2 - maximum) ** 2
     return x1 + x2
+
+
+def denoisloss(out, tar):
+    loss = torch.mean((out-tar)**2)
+    return(loss)
