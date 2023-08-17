@@ -29,24 +29,28 @@ class DeformationInterpolator:
 
     def __init__(self, device, grid, points, box_size, ds):
         super(DeformationInterpolator, self).__init__()
-        self.grid = grid.cpu().numpy()
-        self.int_grid = torch.tensor(
-            np.round((self.grid + 0.5) * (box_size-1)) // ds).long()
+        self.grid = grid.to(device)
+        # self.int_grid = torch.tensor(
+        #    np.round((self.grid + 0.5) * (box_size-1)) // ds).long()
+        self.int_grid = (torch.round((self.grid + 0.5)
+                         * (box_size-1)) // ds).long()
         self.box_size = box_size
         self.ds = ds
 
     def compute_field(self, values):
+        bs = values.shape[0]
         size = self.box_size // self.ds
-        dispM = 2 * torch.ones(1, 3, size, size, size)
-        values = values.cpu()
+        dispM = 2 * torch.ones(bs, 3, size, size,
+                               size).to(values.dtype).to(values.device)
+        #values = values.cpu()
         values = torch.tensor(self.grid) - values + torch.tensor(self.grid)
-        dispM[0, :, self.int_grid[:, 2], self.int_grid[:, 1],
+        dispM[:, :, self.int_grid[:, 2], self.int_grid[:, 1],
               self.int_grid[:, 0]] = values.movedim(
-            0, 1).float()
-        dispL = torch.nn.functional.upsample(dispM, scale_factor=self.ds,
-                                             mode='trilinear')
+            1, 2)
+        dispL = torch.nn.functional.interpolate(dispM, scale_factor=self.ds,
+                                                mode='trilinear')
 
-        return dispL[0] * 2
+        return dispL * 2
 
 
 class RotateVolume(nn.Module):
@@ -100,6 +104,12 @@ class RotateVolume(nn.Module):
             batch_size, 1, self.box_size + 1, self.box_size + 1,
             self.box_size + 1),
             align_corners=False).float()
+        if G.dtype != V.dtype:
+            G = G.to(V.dtype)
+        # G = torch.nn.functional.affine_grid(R, (
+        #     batch_size, 1, self.box_size + 1, self.box_size + 1,
+        #     self.box_size + 1),
+        #     align_corners=False).to(torch.float16)
         VV = F.grid_sample(input=V, grid=G.to(self.device), mode='bilinear',
                            align_corners=False)
 
@@ -333,35 +343,28 @@ def backproject_single_image(
 
     device = decoder.device
     box_size = decoder.box_size
-    ginv = torch.linspace(-0.5, 0.5, box_size // 16)
-    Ginv = torch.meshgrid(ginv, ginv, ginv)
-    invgrid = torch.stack(
-        [Ginv[0].ravel(), Ginv[1].ravel(), Ginv[2].ravel()], 1)
 
     with torch.no_grad():
         if do_deformations is True:
-            z_image = torch.stack(2*[z_image], 0).to(device)
-            tile_deformation = inverse_model(z_image, torch.stack(
-                2 * [grid.to(device)], 0))
+            #z_image = torch.stack(2*[z_image], 0).to(device)
+            z_image = z_image.to(device)
+            bs = z_image.shape[0]
+            tile_deformation = inverse_model(z_image.to(torch.float16), torch.stack(
+                bs * [grid.to(device)], 0).to(torch.float16))
+            disp = interpolate_field.compute_field(
+                tile_deformation).to(torch.float16)
+            # disp0 = disp[0, ...]
+            # disp1 = disp[1, ...]
+            # disp2 = disp[2, ...]
+            # disp = torch.stack(
+            #     [disp0.squeeze(), disp1.squeeze(), disp2.squeeze()], 3)
+            dis_grid = disp.movedim(1, 4)
 
-            disp = interpolate_field.compute_field(tile_deformation[0])
-            disp0 = disp[0, ...]
-            disp1 = disp[1, ...]
-            disp2 = disp[2, ...]
-            disp = torch.stack(
-                [disp0.squeeze(), disp1.squeeze(), disp2.squeeze()], 3)
-            dis_grid = disp[None, :, :, :]
-        # if idx.item() % 1000 == 0:
-        #     with torch.no_grad():
-        #         inv_defo = inverse_model(z_image, torch.stack(
-        #             2 * [invgrid.to(device)], 0))
-        #         field2bild(invgrid.cpu(), inv_defo[0].cpu(), '/cephfs/schwab/field' +
-        #                    str(idx.item()), decoder.box_size, decoder.ang_pix)
+            #dis_grid = disp[None, :, :, :]
+
         r, t = poses(idx)
         batch_size = y.shape[0]
-        # ctfs_l = torch.nn.functional.pad(ctf, (
-        #    box_size // 2, box_size // 2, box_size // 2,
-        #    box_size // 2, 0, 0)).to(device)
+
         ctfs = torch.fft.fftshift(ctf, dim=[-1, -2])
         ctfs_l = torch.nn.functional.pad(ctf, (
             box_size // 2, box_size // 2, box_size // 2,
@@ -373,6 +376,7 @@ def backproject_single_image(
         y_in, r, t, ctfs, ctf = y_in.to(device), r.to(device), t.to(
             device), ctfs.to(
             device), ctf.to(device)
+
         if use_ctf:
             y = torch.fft.fft2(y_in, dim=[-1, -2])
             y = y * ctfs
@@ -389,6 +393,9 @@ def backproject_single_image(
                                                   stride=2,
                                                   padding=1)
 
+        yr = yr.to(torch.float16)
+        ctfr2_lc = ctfr2_lc.to(torch.float16)
+
         # ctfr2_lc = torch.fft.fftshift(torch.real(
         #     torch.fft.ifft2(
         #         torch.fft.fftshift(ctfs, dim=[-1, -2]),
@@ -398,6 +405,7 @@ def backproject_single_image(
                                box_size)
         CTFy = torch.nn.functional.pad(CTFy,
                                        (0, 1, 0, 1, 0, 1, 0, 0))
+
         CTFy = rotation(CTFy.unsqueeze(1), r).squeeze()
 
         if len(CTFy.shape) < 4:
@@ -405,30 +413,79 @@ def backproject_single_image(
 
         CTFy = CTFy[:, :-1, :-1, :-1]
         CTFy = torch.real(
-            torch.sum(torch.fft.fftn(torch.fft.fftshift(CTFy, dim=[-1, -2, -3]),
+            torch.sum(torch.fft.fftn(torch.fft.fftshift(CTFy.float(), dim=[-1, -2, -3]),
                                      dim=[-1, -2, -3]) ** 2,
                       0).squeeze())
 
         Vy = yr.expand(batch_size, box_size, box_size, box_size)
         Vy = torch.nn.functional.pad(Vy, (0, 1, 0, 1, 0, 1, 0, 0))
+
         Vy = rotation(Vy.unsqueeze(1), r).squeeze()
-        if len(Vy.shape) < 4:
-            Vy = Vy.unsqueeze(0)
+
         if len(Vy.shape) < 4:
             Vy = Vy.unsqueeze(0)
 
-        Vy = torch.sum(Vy, 0)
+        #Vy = torch.sum(Vy, 0)
         if do_deformations is True:
-            Vy = F.grid_sample(input=Vy[:-1, :-1, :-1].unsqueeze(0).unsqueeze(0),
+            Vy = F.grid_sample(input=Vy[:, :-1, :-1, :-1].unsqueeze(1),
                                grid=dis_grid.to(device),
                                mode='bilinear', align_corners=True)
         else:
             Vy = Vy[:-1, :-1, :-1]
-        # if idx.item()%1000 ==0:
-        #     mrcfile.write(
-        #         name='/cephfs/schwab/single_bp'+str(idx.item())+'.mrc',
-        #         data=(Vy[0,0]).float().cpu().numpy(),
-        #         voxel_size=decoder.ang_pix,
-        #         overwrite=True)
 
-        return Vy, CTFy
+
+        Vy = torch.sum(Vy, 0)
+
+        return Vy.float(), CTFy.float()
+
+def compute_weight_image(
+        z_image: torch.Tensor,
+        z_image2: torch.Tensor,
+        inverse_model: torch.nn.Module,
+        inverse_model2: torch.nn.Module,
+        decoder: torch.nn.Module,
+        grid: torch.Tensor,
+        interpolate_field,
+        rotation,
+        idx,
+        poses,
+        y: torch.Tensor,
+        ctf: torch.Tensor,
+        data_preprocessor,
+        use_ctf=True,
+        do_deformations=True
+):
+
+    device = decoder.device
+    box_size = decoder.box_size
+    ginv = torch.linspace(-0.5, 0.5, box_size // 16)
+    Ginv = torch.meshgrid(ginv, ginv, ginv)
+    invgrid = torch.stack(
+        [Ginv[0].ravel(), Ginv[1].ravel(), Ginv[2].ravel()], 1)
+
+    with torch.no_grad():
+        if do_deformations is True:
+            r, t = poses(idx)
+            z_image = torch.stack(2*[z_image], 0).to(device)
+            z_image2 = torch.stack(2*[z_image2], 0).to(device)
+            tile_deformation = inverse_model(z_image, torch.stack(
+                2 * [grid.to(device)], 0))
+            displacements = inverse_model(
+                z_image, torch.stack(2 * [grid.to(device)], 0))
+            displacements2 = inverse_model2(
+                z_image2, torch.stack(2 * [grid.to(device)], 0))
+
+            disp = interpolate_field.compute_field(
+                displacements[0])*decoder.box_size/decoder.ang_pix
+            disp2 = interpolate_field.compute_field(
+                displacements2[0])*decoder.box_size/decoder.ang_pix
+
+            diffs = torch.pow(torch.sum((disp-disp2)**2, dim=0), 0.5)
+            print(torch.max(diffs), torch.min(diffs))
+            weight = torch.exp(-diffs/5).unsqueeze(0)
+            print(torch.max(weight), torch.min(weight))
+            weight = torch.nn.functional.pad(weight, (0, 1, 0, 1, 0, 1, 0, 0))
+            weight = rotation(weight.unsqueeze(1).to(
+                device), r.to(device)).squeeze()
+
+        return weight[:-1, :-1, :-1].squeeze().to(device)

@@ -621,10 +621,8 @@ def graphs2bild(total_points, points, edge_indices, amps, title, box_size, ang_p
         points = points / (box_size * ang_pix) - 0.5
         f.write('%s %.18g\n' % ('.color', color))
         if edge_index != None:
-            print(points.shape)
             y = np.concatenate([total_points[edge_index[0].cpu(
             ).numpy()], total_points[edge_index[1].cpu().numpy()]], 1)
-            print(y.shape)
             for k in range(y.shape[0]):
                 f.write("%s %.18g %.18g %.18g %.18g %.18g %.18g %.18g\n" % (
                     '.cylinder', y[k, 0], y[k, 1], y[k,
@@ -639,33 +637,42 @@ def graphs2bild(total_points, points, edge_indices, amps, title, box_size, ang_p
     f.close()
 
 
-def field2bild(points, field, title, box_size, ang_pix):
+def field2bild(points, field, uncertainty, title, box_size, ang_pix):
     f = open(title + '.bild', 'a')
-    color = 8
+    color = 18
     cols = torch.linalg.norm(points - field, dim=1)
     points = points.detach().cpu().numpy()
     points = (points + 0.5) * box_size * ang_pix
+    uncertainty = uncertainty*box_size*ang_pix
+    cols = torch.round((uncertainty/20 * 45)).long()
     field = field.detach().cpu().numpy()
     field = (field + 0.5) * box_size * ang_pix
     y = np.concatenate([points, field], 1)
-    cols = torch.round(cols / torch.max(cols) * 65).long()
+    #cols = torch.round(cols / torch.max(cols) * 65).long()
     for k in range(y.shape[0]):
-        f.write('%s %.18g\n' % ('.color', cols[k]))
+
+        f.write('%s %.18g\n' % ('.color', color))
         f.write("%s %.18g %.18g %.18g %.18g %.18g %.18g %.18g\n %.18g\n %.18g\n" % (
             '.arrow', y[k, 0], y[k, 1], y[k, 2], y[k, 3], y[k, 4], y[k, 5], 0.5, 1, 0.5))
+    # f.write('%s %.18g\n' % ('.transparency', 0.6))
+    # for k in range(y.shape[0]):
+    #     f.write('%s %.18g\n' % ('.color', cols[k]))
+    #     f.write("%s %.18g %.18g %.18g %.18g\n" % (
+    #         '.sphere', y[k, 3], y[k, 4], y[k, 5], uncertainty[k]))
+
     f.close()
 
 
 def points2bild(points, amps, title, box_size, ang_pix):
     f = open(title + '.bild', 'a')
-    color = 8
+    color = 19
     for points, amps in zip(points, amps):
         points = points.detach().cpu().numpy()
         points = (points + 0.5) * box_size * ang_pix
         f.write('%s %.18g\n' % ('.color', color))
         for k in range(points.shape[0]):
             f.write("%s %.18g %.18g %.18g %.18g\n" % (
-                '.sphere', points[k, 0], points[k, 1], points[k, 2], 0.02 * amps[k]))
+                '.sphere', points[k, 0], points[k, 1], points[k, 2], 4))  # * amps[k]))
         color = color + 20
     f.close()
 
@@ -676,7 +683,6 @@ def series2xyz(points, title, box_size, ang_pix):
             (0.5 + points.detach().data.cpu().numpy())
     atomtype = ("C",)
     for i in range(points.shape[0]):
-        print(i)
         pp = points[i].squeeze()
         f = open(title + '.xyz', 'a')
         f.write("%d\n%s\n" % (points[i].size / 3, title))
@@ -760,7 +766,6 @@ def RadialAvgProfile(F1, batch_reduce=None):
     else:
         F1 = torch.fft.fftn(F1, dim=[-3, -2, -1])
     device = F1.device
-    print(device)
     N = F1.shape[-1]
     ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
     end_ind = torch.round(torch.tensor(N / 2)).long()
@@ -1132,8 +1137,7 @@ def initial_optimization(cons_model, atom_model, device, directory, angpix, N_ep
             cons_model.ampvar, dim=0), dim=0)
         write_xyz(cons_model.pos, '/cephfs/schwab/approximation/positions' +
                   str(i).zfill(3), box_size, angpix, types)
-        # print(torch.nn.functional.mse_loss(V[0],V0.detach()).detach())
-        # print(f1(lay(coarse_model.pos)).detach())
+
         loss.backward()
         coarse_optimizer.step()
 

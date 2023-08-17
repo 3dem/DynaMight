@@ -96,9 +96,11 @@ def calibrate_regularization_parameter(
     print('data_norm:', data_norm)
     print('geometry_norm:', geometry_norm)
     if recompute_data_normalization == True:
-        return (0.5 * (data_norm / np.maximum(geometry_norm, 0.1*data_norm))), Sig, Err
+
+        return (0.5 * (data_norm / np.maximum(geometry_norm, 0.005*data_norm))), Sig, Err
     else:
-        return (0.5 * (data_norm / np.maximum(geometry_norm, 0.1*data_norm)))
+        return (0.5 * (data_norm / np.maximum(geometry_norm, 0.005*data_norm)))
+
 
 
 def _compute_data_norm(
@@ -210,7 +212,7 @@ def _compute_geometry_norm(
         repulsion_weight=0.01,
         outlier_weight=0.0,
         deformation_regularity_weight=1.0,
-        deformation_coherence_weight=0.
+        deformation_coherence_weight=0.0
     )
     for batch_ndx, sample in enumerate(dataloader):
         # zero gradients

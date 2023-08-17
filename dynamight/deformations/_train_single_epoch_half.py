@@ -54,7 +54,8 @@ def train_epoch(
         repulsion_weight=0.01,
         outlier_weight=0.0,
         deformation_regularity_weight=1.0,
-        deformation_coherence_weight=0.
+        deformation_coherence_weight=0.0
+
     )
     denoising_loss = torch.nn.BCELoss()
 
@@ -134,11 +135,16 @@ def train_epoch(
         if epoch < n_warmup_epochs:
             loss = rec_loss
         else:
-            loss = rec_loss + latent_weight * latent_loss + \
-                regularization_parameter * geo_loss
+            if regularization_parameter > 0:
+                loss = rec_loss + latent_weight * latent_loss + \
+                    regularization_parameter * geo_loss
+            else:
+                loss = rec_loss + latent_weight * latent_loss
 
         loss.backward()
-        if epoch < n_warmup_epochs//4:
+
+        if epoch < n_warmup_epochs:
+
             baseline_parameter_optimizer.step()
 
         elif epoch < n_warmup_epochs and epoch > 0:

@@ -31,6 +31,7 @@ def optimize_inverse_deformations(
     particle_diameter: Optional[float] = Option(None),
     mask_soft_edge_width: int = Option(20),
     data_loader_threads: int = Option(4),
+    save_deformations: bool = Option(False)
 ):
 
     backward_deformations_directory = output_directory / 'inverse_deformations'
@@ -157,13 +158,19 @@ def optimize_inverse_deformations(
     N_inv = n_epochs
 
     latent_space = torch.zeros(len(particle_dataset), latent_dim)
-    deformed_positions = torch.zeros(
-        len(particle_dataset), n_points, 3)
+    if save_deformations == True:
+        deformed_positions_h1 = torch.zeros(
+            len(particle_dataset), n_points, 3)
+        deformed_positions_h2 = torch.zeros(
+            len(particle_dataset), n_points, 3)
+    else:
+        deformed_positions_h1 = 0
+        deformed_positions_h2 = 0
     loss_list_half1 = []
     loss_list_half2 = []
 
     for epoch in tqdm(range(N_inv)):
-        inv_loss_h1, latent_space, deformed_positions = optimize_epoch(
+        inv_loss_h1, latent_space, deformed_positions_h1 = optimize_epoch(
             encoder_half1,
             decoder_half1,
             inv_half1,
@@ -174,9 +181,10 @@ def optimize_inverse_deformations(
             epoch,
             add_noise,
             latent_space,
-            deformed_positions
+            deformed_positions_h1,
+            save_deformations=save_deformations
         )
-        inv_loss_h2, latent_space, deformed_positions = optimize_epoch(
+        inv_loss_h2, latent_space, deformed_positions_h2 = optimize_epoch(
             encoder_half2,
             decoder_half2,
             inv_half2,
@@ -187,7 +195,8 @@ def optimize_inverse_deformations(
             epoch,
             add_noise,
             latent_space,
-            deformed_positions
+            deformed_positions_h2,
+            save_deformations=save_deformations
         )
 
         if len(loss_list_half1) > 3:

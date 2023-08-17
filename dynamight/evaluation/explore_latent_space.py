@@ -11,8 +11,9 @@ from .utils import compute_dimensionality_reduction, compute_latent_space_and_co
 from .visualizer import Visualizer_val, Visualizer
 import starfile
 from .._cli import cli
-import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
+import matplotlib.pyplot as plt
+
 
 
 @cli.command()
@@ -35,6 +36,7 @@ def explore_latent_space(
     cluster: bool = False
 ):
     # todo: @schwab implement preload images
+
     # load and prepare models for inference
     print('Visualizing latent space for half:', half_set)
     print('For visualization of the other half set, specify --half_set')
@@ -97,6 +99,7 @@ def explore_latent_space(
         encoder.load_state_dict(cp['encoder_half'+str(half_set)+'_state_dict'])
         decoder.load_state_dict(cp['decoder_half'+str(half_set)+'_state_dict'])
 
+
     poses.load_state_dict(cp['poses_state_dict'])
 
     '''Computing indices for the second half set'''
@@ -110,6 +113,7 @@ def explore_latent_space(
     elif half_set == 0:
         indices = cp['indices_val'].cpu().numpy()
 
+
     if half_set == 0:
         decoder_h1.p2i.device = device
         decoder_h1.projector.device = device
@@ -117,6 +121,7 @@ def explore_latent_space(
         decoder_h1.p2v.device = device
         decoder_h1.device = device
         decoder_h1.to(device)
+
 
         decoder_h2.p2i.device = device
         decoder_h2.projector.device = device
@@ -185,8 +190,7 @@ def explore_latent_space(
             embedded_latent_space_h2 = latent_space_h2.cpu().numpy()
         embedded_latent_space_h1 = torch.tensor(embedded_latent_space_h1)
         embedded_latent_space_h2 = torch.tensor(embedded_latent_space_h2)
-        print(torch.max(embedded_latent_space_h1))
-        print(torch.max(embedded_latent_space_h2))
+
         closest_idx = np.argmin(latent_colors_h1['amount'])
         latent_closest = embedded_latent_space_h1[closest_idx]
     else:
@@ -204,11 +208,17 @@ def explore_latent_space(
                     latent_space, dimensionality_reduction_method)
             print('Dimensionality reduction finished')
         else:
-            embedded_latent_space = latent_space.cpu().numpy()
+
+            if reduce_by_deformation is True:
+                embedded_latent_space = compute_dimensionality_reduction(
+                    feature_vec, dimensionality_reduction_method)
+            else:
+                embedded_latent_space = latent_space.cpu().numpy()
         embedded_latent_space = torch.tensor(embedded_latent_space)
         closest_idx = np.argmin(latent_colors['amount'])
         latent_closest = embedded_latent_space[closest_idx]
-    #torch.save(latent_space, '/cephfs/schwab/splice_latent_space.pth')
+
+
     r = torch.zeros([2, 3])
     t = torch.zeros([2, 2])
     if half_set == 0:
@@ -256,27 +266,26 @@ def explore_latent_space(
             latent_space_h1, latent_space_h2, decoder_h1, decoder_h2)
         latent_colors_h1['difference'] = diff_col.cpu().numpy()
         latent_colors_h2['difference'] = diff_col.cpu().numpy()
-    # print(embedded_latent_space_h1.shape)
-    # print(point_colors_h1['activity'].shape)
-    # print(np.max(point_colors_h1['activity']),
-    #      np.min(point_colors_h1['activity']))
+
 
     if cluster == True:
-        print(latent_space.shape)
-        kmeans = KMeans(n_clusters=80).fit(latent_space.cpu().numpy())
-        print(kmeans.labels_)
+
+        kmeans = KMeans(n_clusters=80).fit(feature_vec.cpu().numpy())
+        latent_colors['cluster'] = kmeans.labels_
+
         sortinds = np.argsort(kmeans.labels_)
         new_star = dataframe.copy()
         new_star['particles'] = dataframe['particles'].loc[list(
             sortinds)]
 
-        star_directory = output_directory / 'subsets'
-        star_directory.mkdir(exist_ok=True, parents=True)
-        starfile.write(new_star, star_directory /
-                       ('starfile_ordered_half' + str(half_set) + '.star'))
+
+        #star_directory = output_directory / 'subsets'
+        #star_directory.mkdir(exist_ok=True, parents=True)
+        # starfile.write(new_star, star_directory /
+        #              ('starfile_ordered_half' + str(half_set) + '.star'))
 
     if half_set == 0:
-        # print(embedded_latent_space_h1.shape)
+
         vis = Visualizer_val(
             embedded_latent_space_h1,
             embedded_latent_space_h2,

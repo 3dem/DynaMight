@@ -40,13 +40,10 @@ class GeometricLoss:
         edge_weights_dis=None,
     ) -> float:
 
-        # if len(active_indices) > 0:
-        #    positions_angstroms = deformed_positions[:, active_indices, :] * \
-        #        box_size * ang_pix
-        # else:
 
         positions_angstroms = deformed_positions * \
             box_size * ang_pix
+
         deformation_regularity_loss = self.calculate_deformation_regularity_loss(
             positions=positions_angstroms,
             radius_graph=radius_graph,
@@ -148,7 +145,6 @@ class GeometricLoss:
 
         # add quadratic penalty for distance being greater than cutoff
         x1 = torch.clamp(distances, max=cutoff_distance)
-        # print(torch.min(x1))
         x1 = torch.abs(x1 - cutoff_distance)
         return torch.mean(x1)
 

@@ -341,7 +341,7 @@ class DisplacementDecoder(torch.nn.Module):
         """Parameters which make up a coordinate model."""
         params = [
             self.image_smoother.A,
-            self.amp
+            # self.amp
             # self.image_smoother.B
         ]
         return params
@@ -511,7 +511,9 @@ class InverseDisplacementDecoder(torch.nn.Module):
             else:
                 enc_pos = positional_encoding(posn, self.pos_enc_dim,
                                               self.box_size)
-
+            if enc_pos.dtype != posn.dtype:
+                enc_pos = enc_pos.to(posn.dtype)
+            #print('converting encoding')
             conf_feat = torch.stack(posn.shape[1] * [z],
                                     0).squeeze().movedim(0, 1)
 

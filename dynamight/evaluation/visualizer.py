@@ -13,7 +13,7 @@ from matplotlib.figure import Figure
 from matplotlib.widgets import LassoSelector, PolygonSelector
 from tqdm import tqdm
 from matplotlib.backends.backend_qt5agg import FigureCanvas
-from dynamight.utils.utils_new import compute_threshold, bezier_curve, make_equidistant, field2bild
+from dynamight.utils.utils_new import compute_threshold, bezier_curve, make_equidistant, field2bild, points2bild
 from matplotlib.path import Path
 import mrcfile
 
@@ -139,7 +139,8 @@ class Visualizer:
                 'log-density',
                 'index',
                 'pose',
-                'shift'
+                'shift',
+                'cluster'
             ]
         )
         self.color_widget = widgets.Container(widgets=[self.color_menu])
@@ -162,6 +163,7 @@ class Visualizer:
         self.lasso.disconnect_events()
         self.star_nr = 0
         self.movie_nr = 0
+        self.map_nr = 0
         self.indices = indices
         self.poly = PolygonSelector(ax=self.axes1, onselect=self.get_part_nr, props=self.line,
                                     useblit=True)
@@ -169,7 +171,8 @@ class Visualizer:
         self.output_directory = output_directory
         self.atomic_model = atomic_model
         self.half_set = half_set
-        self.save_movie = widgets.PushButton(value=False, text='save movie')
+        self.save_movie = widgets.PushButton(
+            value=False, text='save map/movie')
         self.save_movie_widget = widgets.Container(widgets=[self.save_movie])
         self.movie_wi = self.viewer.window.add_dock_widget(
             self.save_movie_widget, area='bottom')
@@ -254,6 +257,13 @@ class Visualizer:
             self.axes1.scatter(
                 self.latent_closest[0], self.latent_closest[1], c='r')
             self.lat_canv.draw()
+        elif selected_label == 'cluster':
+            self.axes1.clear()
+            self.axes1.scatter(
+                self.z[:, 0], self.z[:, 1], c=self.lat_cols['cluster'], alpha=0.1)
+            self.axes1.scatter(
+                self.latent_closest[0], self.latent_closest[1], c='r')
+            self.lat_canv.draw()
 
     def coloring_gaussians(self, event):
 
@@ -329,8 +339,9 @@ class Visualizer:
         elif self.rep_menu.current_choice == 'points':
             proj, pos, dis = self.decoder.forward(
                 lat.to(self.device), self.r.to(self.device), self.t.to(self.device))
-            # field2bild(self.decoder.model_positions[::10].detach().cpu(), pos[0, ::10].detach().cpu(
-            # ), '/cephfs/schwab/defo', self.decoder.box_size, self.decoder.ang_pix)
+            #field2bild(self.decoder.model_positions[:].detach().cpu(), pos[0, :].detach().cpu(
+            #), '/cephfs/schwab/displacements_reg', self.decoder.box_size, self.decoder.ang_pix)
+
             p = torch.cat([self.nap_zeros.unsqueeze(1), (0.5 + pos[0].detach().cpu()) * self.decoder.box_size],
                           1)
             self.point_layer.data = torch.stack(
@@ -356,6 +367,7 @@ class Visualizer:
                 ppath.append(self.latent_space[inst_ind])
             t = torch.stack(self.decoder.latent_dim *
                             [torch.tensor(np.linspace(0, 1, 10, endpoint=False))], 1).to(self.device)
+
             ppath = torch.stack(ppath, 0)
             path_len = ppath.shape[0]
 
@@ -364,7 +376,6 @@ class Visualizer:
                      t*ppath[4*path_len//8], (1-t) * ppath[4*path_len//8]+t*ppath[5*path_len//8],
                      (1-t) * ppath[5*path_len//8]+t*ppath[6*path_len//8], (1-t) * ppath[6*path_len//8]+t*ppath[7*path_len//8], (1-t)*ppath[7*path_len//8]+t*ppath[-1], ppath[-1].unsqueeze(0)]
             path = torch.concatenate(ppath, 0)
-            print(path.shape)
             path = torch.unique_consecutive(path, dim=0)
 
         if self.rep_menu.current_choice == 'volume':
@@ -439,25 +450,38 @@ class Visualizer:
                                     useblit=True)
 
     def save_series(self, event):
-        if (self.output_directory / 'movies').exists():
-            movie_directory = self.output_directory / 'movies'
-            current_movie_directory = movie_directory / \
-                ('movie_' + str(self.movie_nr).zfill(2))
-            current_movie_directory.mkdir(exist_ok=True, parents=True)
-        else:
-            movie_directory = self.output_directory / 'movies'
-            movie_directory.mkdir(exist_ok=True, parents=True)
-            current_movie_directory = movie_directory / \
-                ('movie_' + str(self.movie_nr).zfill(2))
-            current_movie_directory.mkdir(exist_ok=True, parents=True)
+        if len(self.vol_layer.data.shape) > 3:
+            if (self.output_directory / 'movies').exists():
+                movie_directory = self.output_directory / 'movies'
+                current_movie_directory = movie_directory / \
+                    ('movie_' + str(self.movie_nr).zfill(2))
+                current_movie_directory.mkdir(exist_ok=True, parents=True)
+            else:
+                movie_directory = self.output_directory / 'movies'
+                movie_directory.mkdir(exist_ok=True, parents=True)
+                current_movie_directory = movie_directory / \
+                    ('movie_' + str(self.movie_nr).zfill(2))
+                current_movie_directory.mkdir(exist_ok=True, parents=True)
 
-        V = self.vol_layer.data
-        self.movie_nr += 1
-        for i in range(V.shape[0]):
-            with mrcfile.new(current_movie_directory / ('volume'+str(i).zfill(3)+'.mrc'), overwrite=True) as mrc:
-                mrc.set_data(V[i])
+            V = self.vol_layer.data
+            self.movie_nr += 1
+            for i in range(V.shape[0]):
+                with mrcfile.new(current_movie_directory / ('volume'+str(i).zfill(3)+'.mrc'), overwrite=True) as mrc:
+                    mrc.set_data(V[i])
+                    mrc.voxel_size = self.decoder.ang_pix
+            self.save_movie.null_value
+        else:
+            if (self.output_directory / 'maps').exists():
+                map_directory = self.output_directory / 'maps'
+            else:
+                map_directory = self.output_directory / 'maps'
+
+            V = self.vol_layer.data
+            self.map_nr += 1
+            with mrcfile.new(map_directory / ('map'+str(self.map_nr).zfill(3)+'.mrc'), overwrite=True) as mrc:
+                mrc.set_data(V)
                 mrc.voxel_size = self.decoder.ang_pix
-        self.save_movie.null_value
+            self.save_movie.null_value
 
 
 class Visualizer_val:
@@ -522,7 +546,7 @@ class Visualizer_val:
             ndim=4,
             size=1,
             face_color='activity',
-            face_colormap='rainbow',
+            face_colormap='Wistia',
             edge_width=0,
             visible=True,
             name='flexible positions'
@@ -533,7 +557,7 @@ class Visualizer_val:
             ndim=4,
             size=1,
             face_color='activity',
-            face_colormap='rainbow',
+            face_colormap='Wistia',
             edge_width=0,
             visible=False,
             name='consensus positions'
@@ -614,6 +638,7 @@ class Visualizer_val:
         self.lasso.disconnect_events()
         self.star_nr = 0
         self.movie_nr = 0
+        self.def_nr = 0
         self.indices = indices
         self.poly = PolygonSelector(ax=self.axes1, onselect=self.get_part_nr, props=self.line,
                                     useblit=True)
@@ -795,18 +820,34 @@ class Visualizer_val:
                     lat_h1.to(self.device), self.r.to(self.device), self.t.to(self.device))
                 proj_h2, pos_h2, dis_h2 = self.decoder_h2.forward(
                     lat_h2.to(self.device), self.r.to(self.device), self.t.to(self.device), positions=self.decoder_h1.model_positions)
-                # field2bild(self.decoder.model_positions[::10].detach().cpu(), pos[0, ::10].detach().cpu(
-                # ), '/cephfs/schwab/defo', self.decoder.box_size, self.decoder.ang_pix)
+
                 p_h1 = torch.cat([self.nap_zeros.unsqueeze(1), (0.5 + pos_h1[0].detach().cpu()) * self.decoder_h1.box_size],
                                  1)
                 self.point_layer.data = torch.stack(
                     [p_h1[:, 0], p_h1[:, 3], p_h1[:, 2], p_h1[:, 1]], 1)
                 dnorm = torch.sqrt(
                     torch.sum((dis_h1[0]-dis_h2[0])**2, -1))
+                err = dnorm ** 2
+                sig = torch.sum(dis_h1[0]*dis_h2[0], -1)
+
+                field2bild(self.decoder_h1.model_positions[::100].detach().cpu(), pos_h1[0, ::100].detach(
+                ).cpu(), dnorm, '/cephfs/schwab/defo'+str(self.def_nr).zfill(3), self.decoder_h1.box_size, self.decoder_h1.ang_pix)
+                print(self.decoder_h1.model_positions[::100].shape)
+                points2bild([self.decoder_h1.model_positions[::150]], [torch.ones(
+                    self.decoder_h1.model_positions[::150].shape[0], 1)], '/cephfs/schwab/points_h1', self.decoder_h1.box_size, self.decoder_h1.ang_pix)
+                points2bild([self.decoder_h2.model_positions[::150]], [torch.ones(
+                    self.decoder_h1.model_positions[::150].shape[0], 1)], '/cephfs/schwab/points_h2', self.decoder_h1.box_size, self.decoder_h1.ang_pix)
+                self.def_nr += 1
                 dnorm = dnorm/self.max_err
+                nsr = err.cpu().numpy()/sig.cpu().numpy()
                 self.point_properties['activity'] = dnorm.cpu().numpy()
                 self.point_layer.features = self.point_properties
                 self.point_layer.face_color = 'activity'
+                self.point_layer.size = self.max_err.cpu().numpy(
+                )*self.decoder_h1.box_size*dnorm.cpu().numpy()
+                # self.point_layer.size = sig.cpu().numpy() / \
+                #     err.cpu().numpy()
+                self.point_layer.opacity = 0.5
                 self.point_layer.refresh()
 
     def on_select(self, line):
@@ -829,13 +870,8 @@ class Visualizer_val:
                 ppath.append(self.latent_space[inst_ind])
             t = torch.stack(self.decoder.latent_dim *
                             [torch.tensor(np.linspace(0, 1, 12, endpoint=False))], 1).to(self.device)
-            ppath = torch.stack(ppath, 0)
-            path_len = ppath.shape[0]
 
-            ppath = [(1-t)*ppath[0]+t * ppath[path_len//8], (1-t)*ppath[path_len//8]+t*ppath[2*path_len//8], (1-t) *
-                     ppath[2*path_len//8]+t*ppath[3*path_len//8], (1-t) * ppath[3*path_len//8] +
-                     t*ppath[4*path_len//8], (1-t) * ppath[4*path_len//8]+t*ppath[5*path_len//8],
-                     (1-t) * ppath[5*path_len//8]+t*ppath[6*path_len//8], (1-t) * ppath[6*path_len//8]+t*ppath[7*path_len//8], (1-t)*ppath[7*path_len//8]+t*ppath[-1], ppath[-1].unsqueeze(0)]
+
             path = torch.concatenate(ppath, 0)
             print(path.shape)
             path = torch.unique_consecutive(path, dim=0)

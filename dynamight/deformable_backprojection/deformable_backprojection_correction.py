@@ -19,7 +19,7 @@ from dynamight.deformable_backprojection.backprojection_utils import \
     get_ess_grid, DeformationInterpolator, RotateVolume, \
     generate_smooth_mask_and_grids, generate_smooth_mask_from_consensus, \
     get_latent_space_and_indices, get_latent_space_tiling, backproject_images_from_tile, \
-    backproject_single_image
+    backproject_single_image, compute_weight_image
 from dynamight.data.handlers.particle_image_preprocessor import \
     ParticleImagePreprocessor
 from tqdm import tqdm
@@ -29,8 +29,15 @@ import matplotlib.pyplot as plt
 from .._cli import cli
 
 
+from tqdm import tqdm
+from ..data.dataloaders.relion import RelionDataset
+from typer import Option
+import matplotlib.pyplot as plt
+from .._cli import cli
+
+
 @cli.command()
-def deformable_backprojection_single(
+def deformable_backprojection_correction(
     output_directory: Path,
     mask_file: Optional[Path] = None,
     refinement_star_file: Optional[Path] = None,
@@ -38,7 +45,6 @@ def deformable_backprojection_single(
     inverse_deformation_directory: Optional[Path] = None,
     gpu_id: Optional[int] = 0,
     batch_size: int = Option(24),
-    backprojection_batch_size: int = Option(1),
     preload_images: bool = Option(False),
     particle_diameter: Optional[float] = Option(None),
     mask_soft_edge_width: int = Option(20),
@@ -47,7 +53,7 @@ def deformable_backprojection_single(
     mask_reconstruction: bool = Option(False),
     do_deformations: bool = Option(True)
 ):
-    backprojection_directory = output_directory / 'backprojection_new'
+    backprojection_directory = output_directory / 'corrected_backprojection'
     backprojection_directory.mkdir(exist_ok=True, parents=True)
 
     device = 'cuda:' + str(gpu_id)
@@ -110,14 +116,11 @@ def deformable_backprojection_single(
 
     try:
         inds_val = cp_vae['indices_val'].cpu().numpy()
-        inds_half1 = np.concatenate(
-            [inds_half1, inds_val[:inds_val.shape[0]//2]])
-
+        inds_half1 = inds_val[:inds_val.shape[0]//2]
     except:
         print('no validation set given')
 
-    inds_half2 = list(set(range(len(dataset))) -
-                      set(list(inds_half1)))
+    inds_half2 = list(set(list(inds_val)) - set(list(inds_half1)))
 
     dataset_half1 = torch.utils.data.Subset(dataset, inds_half1)
     dataset_half2 = torch.utils.data.Subset(dataset, inds_half2)
@@ -149,8 +152,6 @@ def deformable_backprojection_single(
     inv_half2 = cp['inv_half2']
     inv_half1.load_state_dict(cp['inv_half1_state_dict'])
     inv_half2.load_state_dict(cp['inv_half2_state_dict'])
-    inv_half1 = inv_half1.half().eval()
-    inv_half2 = inv_half2.half().eval()
 
     latent_dim = inv_half1.latent_dim
 
@@ -164,17 +165,14 @@ def deformable_backprojection_single(
     else:
         rec_mask_h1 = torch.ones(box_size, box_size, box_size).to(device)
         rec_mask_h2 = torch.ones(box_size, box_size, box_size).to(device)
-    print('generate deformation mask')
-    # def_mask_h1 = generate_smooth_mask_from_consensus(
-    #     decoder_half1, box_size, ang_pix, distance=10, soft_edge=0
-    # )
-    # def_mask_h2 = generate_smooth_mask_from_consensus(
-    #     decoder_half2, box_size, ang_pix, distance=10, soft_edge=0
-    # )
 
-    def_mask_h1 = torch.ones(box_size, box_size, box_size).to(device)
-    def_mask_h2 = torch.ones(box_size, box_size, box_size).to(device)
-    print('masks generated')
+    def_mask_h1 = generate_smooth_mask_from_consensus(
+        decoder_half1, box_size, ang_pix, distance=40, soft_edge=0
+    )
+    def_mask_h2 = generate_smooth_mask_from_consensus(
+        decoder_half2, box_size, ang_pix, distance=40, soft_edge=0
+    )
+
     def_mask = def_mask_h1 * def_mask_h2
     rec_mask = rec_mask_h1 * rec_mask_h2
 
@@ -201,6 +199,8 @@ def deformable_backprojection_single(
 
     print('Computing latent_space and indices for half 1')
     latent_space = torch.zeros(len(dataset), latent_dim)
+    latent_space_2 = torch.zeros(len(dataset), latent_dim)
+
     latent_space, latent_indices_half1 = get_latent_space_and_indices(
         data_loader_half1,
         encoder_half1,
@@ -209,12 +209,30 @@ def deformable_backprojection_single(
         data_preprocessor,
         device
     )
-    print('Computing latent_space and indices for half 2')
+
+    latent_space_2, latent_indices_half1 = get_latent_space_and_indices(
+        data_loader_half1,
+        encoder_half2,
+        poses,
+        latent_space_2,
+        data_preprocessor,
+        device
+    )
+
     latent_space, latent_indices_half2 = get_latent_space_and_indices(
         data_loader_half2,
         encoder_half2,
         poses,
         latent_space,
+        data_preprocessor,
+        device
+    )
+
+    latent_space_2, latent_indices_half2 = get_latent_space_and_indices(
+        data_loader_half2,
+        encoder_half1,
+        poses,
+        latent_space_2,
         data_preprocessor,
         device
     )
@@ -229,33 +247,37 @@ def deformable_backprojection_single(
     smallgrid, outsmallgrid = get_ess_grid(
         smallgrid, decoder_half1.model_positions, box_size
     )
-    print(smallgrid.shape)
-    smallgrid = smallgrid.to(torch.float16)
+
     fwd_int = DeformationInterpolator(
         device, smallgrid, smallgrid, box_size, downsample
     )
 
     rotation = RotateVolume(box_size, device)
     print('initialising output volume containing filter for reconstruction')
-    tot_filter = torch.zeros(box_size, box_size, box_size).to(device)
+    ctf_acc = torch.zeros(box_size, box_size, box_size).to(device)
+    weight_acc = torch.zeros(box_size, box_size, box_size).to(device)
 
     print('start deformable_backprojection of half 1')
     current_data = torch.utils.data.Subset(dataset, latent_indices_half1)
     current_data_loader = DataLoader(
         dataset=current_data,
-        batch_size=backprojection_batch_size,
-        num_workers=4,
+        batch_size=1,
+        num_workers=8,
         shuffle=False,
-        pin_memory=False,
-        drop_last=True
+        pin_memory=False
     )
     nr = 0
-    for batch_ndx, sample in tqdm(enumerate(current_data_loader)):
-        r, y, ctf = sample["rotation"].to(torch.float16), sample["image"].to(torch.float16), sample[
+    for batch_ndx, sample in enumerate(tqdm(current_data_loader)):
+        r, y, ctf = sample["rotation"], sample["image"], sample[
             "ctf"]
         idx = sample['idx']
 
-        z_image = latent_space[idx].to(torch.float16)
+        z_image = latent_space[idx]
+        z_image2 = latent_space_2[idx]
+
+        weight = compute_weight_image(z_image, z_image2, inv_half1, inv_half2, decoder_half1,
+                                      smallgrid, fwd_int, rotation, idx, poses, y, ctf, data_preprocessor)
+        #weight = torch.ones(box_size, box_size, box_size).to(device)
 
         Vol, Filter = backproject_single_image(
             z_image=z_image,
@@ -272,12 +294,14 @@ def deformable_backprojection_single(
             use_ctf=True,
             do_deformations=do_deformations)
 
-        V += 1/len(dataset)*Vol.squeeze()
-        tot_filter += 1/len(dataset)*Filter.squeeze()
+        V += Vol.squeeze()*weight
+        ctf_acc += (1 / len(dataset)) * Filter.squeeze()
+        weight_acc += weight
         i += 1
 
-        if i % (len(current_data_loader) // 100) == 0:
-
+        if i % (len(dataset_half1) // 50) == 0:
+            print(torch.max(weight_acc), torch.min(weight_acc))
+            weight_acc[weight_acc == 0] = torch.max(weight_acc)
             try:
                 VV = V[:, :, :] * rec_mask
             except:
@@ -285,16 +309,23 @@ def deformable_backprojection_single(
             VV = torch.fft.fftn(torch.fft.fftshift(
                 VV, dim=[-1, -2, -3]), dim=[-1, -2, -3])
 
-            VV2 = torch.fft.fftshift(torch.real(
-                torch.fft.ifftn(VV / torch.maximum(tot_filter,
+            VV2 = (1/weight_acc)*torch.fft.fftshift(torch.real(
+                torch.fft.ifftn(VV / torch.maximum(ctf_acc,
                                                    lam_thres * torch.ones_like(
-                                                       tot_filter)),
+                                                       ctf_acc)),
                                 dim=[-1, -2, -3])), dim=[-1, -2, -3])
             nr += 1
             mrcfile.write(
                 name=backprojection_directory /
                 f'reconstruction_half1_{nr:03}.mrc',
                 data=(VV2).float().cpu().numpy(),
+                voxel_size=decoder_half1.ang_pix,
+                overwrite=True,
+            )
+            mrcfile.write(
+                name=backprojection_directory /
+                f'weight_{nr:03}.mrc',
+                data=(weight).float().cpu().numpy(),
                 voxel_size=decoder_half1.ang_pix,
                 overwrite=True,
             )
@@ -305,8 +336,8 @@ def deformable_backprojection_single(
     V = torch.fft.fftn(torch.fft.fftshift(
         V, dim=[-1, -2, -3]), dim=[-1, -2, -3])
     V = torch.fft.fftshift(torch.real(torch.fft.ifftn(
-        V / torch.maximum(tot_filter, lam_thres * torch.ones_like(tot_filter)),
-        dim=[-1, -2, -3])), dim=[-1, -2, -3])
+        V / torch.maximum(ctf_acc, lam_thres * torch.ones_like(ctf_acc)),
+        dim=[-1, -2, -3])), dim=[-1, -2, -3])/weight_acc
 
     mrcfile.write(
         name=backprojection_directory / 'map_half1.mrc',
@@ -315,30 +346,36 @@ def deformable_backprojection_single(
         overwrite=True,
     )
 
-    del V, tot_filter
+    del V, ctf_acc
 
     print('Initialising output volume for half2')
     V = torch.zeros(box_size, box_size, box_size).to(device)
-    tot_filter = torch.zeros(box_size, box_size, box_size).to(device)
+    weight_acc = torch.zeros(box_size, box_size, box_size).to(device)
+    ctf_acc = torch.zeros(box_size, box_size, box_size).to(device)
     i = 0
 
     print('start deformable_backprojection of half 2')
     current_data = torch.utils.data.Subset(dataset, latent_indices_half2)
     current_data_loader = DataLoader(
         dataset=current_data,
-        batch_size=backprojection_batch_size,
-        num_workers=4,
+        batch_size=1,
+        num_workers=8,
         shuffle=False,
-        pin_memory=False,
-        drop_last=True
+        pin_memory=False
     )
     nr = 0
-    for batch_ndx, sample in tqdm(enumerate(current_data_loader)):
-        r, y, ctf = sample["rotation"].to(torch.float16), sample["image"].to(torch.float16), sample[
+    for batch_ndx, sample in enumerate(tqdm(current_data_loader)):
+        r, y, ctf = sample["rotation"], sample["image"], sample[
             "ctf"]
         idx = sample['idx']
 
-        z_image = latent_space[idx].to(torch.float16)
+        z_image = latent_space[idx]
+        z_image2 = latent_space_2[idx]
+
+        weight = compute_weight_image(z_image, z_image2, inv_half2, inv_half1, decoder_half1,
+                                      smallgrid, fwd_int, rotation, idx, poses, y, ctf, data_preprocessor)
+        #weight = torch.ones(box_size, box_size, box_size).to(device)
+        #print(torch.min(weight), torch.max(weight))
 
         Vol, Filter = backproject_single_image(
             z_image=z_image,
@@ -355,22 +392,23 @@ def deformable_backprojection_single(
             use_ctf=True,
             do_deformations=do_deformations)
 
-        V += 1/len(dataset)*Vol.squeeze()
-        tot_filter += 1/len(dataset)*Filter.squeeze()
+        V += Vol.squeeze()*weight
+        ctf_acc += (1 / len(dataset)) * Filter.squeeze()
+        weight_acc += weight
         i += 1
 
-        if i % (len(current_data_loader) // 100) == 0:
-
+        if i % (len(dataset_half2) // 50) == 0:
+            weight_acc[weight_acc == 0] = torch.max(weight_acc)
             try:
                 VV = V[:, :, :] * rec_mask
             except:
                 VV = V[:, :, :]
             VV = torch.fft.fftn(torch.fft.fftshift(
                 VV, dim=[-1, -2, -3]), dim=[-1, -2, -3])
-            VV2 = torch.fft.fftshift(torch.real(
-                torch.fft.ifftn(VV / torch.maximum(tot_filter,
+            VV2 = (1/weight_acc)*torch.fft.fftshift(torch.real(
+                torch.fft.ifftn(VV / torch.maximum(ctf_acc,
                                                    lam_thres * torch.ones_like(
-                                                       tot_filter)),
+                                                       ctf_acc)),
                                 dim=[-1, -2, -3])), dim=[-1, -2, -3])
             nr += 1
             mrcfile.write(
@@ -388,13 +426,13 @@ def deformable_backprojection_single(
     V = torch.fft.fftn(torch.fft.fftshift(
         V, dim=[-1, -2, -3]), dim=[-1, -2, -3])
     V = torch.fft.fftshift(torch.real(torch.fft.ifftn(
-        V / torch.maximum(tot_filter, lam_thres * torch.ones_like(tot_filter)),
-        dim=[-1, -2, -3])), dim=[-1, -2, -3])
+        V / torch.maximum(ctf_acc, lam_thres * torch.ones_like(ctf_acc)),
+        dim=[-1, -2, -3])), dim=[-1, -2, -3])/weight_acc
 
     with mrcfile.new(backprojection_directory / 'map_half2.mrc', overwrite=True) as mrc:
         mrc.set_data((V).float().detach().cpu().numpy())
         mrc.voxel_size = decoder_half2.ang_pix
-    del V, tot_filter
+    del V, ctf_acc
 
     with mrcfile.open(backprojection_directory / 'map_half1.mrc') as mrc:
         map_h1 = torch.tensor(mrc.data).to(device)
