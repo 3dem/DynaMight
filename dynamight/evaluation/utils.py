@@ -136,7 +136,9 @@ def compute_latent_space_and_colors(
     amps -= torch.min(amps)
     amps /= torch.max(amps)
     widths = torch.nn.functional.softmax(decoder.ampvar, 0)[0].detach().cpu()
+
     cluster_colors = torch.zeros_like(amps)
+
 
     lat_colors = {'amount': color_amount, 'direction': color_direction, 'location': color_position, 'index': indices, 'pose': color_euler_angles,
                   'shift': color_shifts, 'cluster': cluster_colors}
@@ -169,6 +171,7 @@ def compute_max_deviation(
             _, _, dis_h1 = decoder_h1(latent_1, r, t)
             _, _, dis_h2 = decoder_h2(latent_2, r, t)
 
+
             difference = torch.sqrt(torch.sum(
                 ((dis_h1[:]-dis_h2[:])*decoder_h1.box_size/decoder_h1.ang_pix)**2, -1))
             diff_col.append(torch.mean(difference, 1))
@@ -179,5 +182,6 @@ def compute_max_deviation(
     diff_col = torch.cat(diff_col, 0)
     np.savetxt('/cephfs/schwab/differences_wrong_new.txt',
                diff_col.cpu().numpy(), fmt='%.8f')
+
     diff_col /= torch.max(diff_col)
     return global_max, diff_col

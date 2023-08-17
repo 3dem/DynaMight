@@ -339,8 +339,9 @@ class Visualizer:
         elif self.rep_menu.current_choice == 'points':
             proj, pos, dis = self.decoder.forward(
                 lat.to(self.device), self.r.to(self.device), self.t.to(self.device))
-            field2bild(self.decoder.model_positions[:].detach().cpu(), pos[0, :].detach().cpu(
-            ), '/cephfs/schwab/displacements_reg', self.decoder.box_size, self.decoder.ang_pix)
+            #field2bild(self.decoder.model_positions[:].detach().cpu(), pos[0, :].detach().cpu(
+            #), '/cephfs/schwab/displacements_reg', self.decoder.box_size, self.decoder.ang_pix)
+
             p = torch.cat([self.nap_zeros.unsqueeze(1), (0.5 + pos[0].detach().cpu()) * self.decoder.box_size],
                           1)
             self.point_layer.data = torch.stack(
@@ -366,6 +367,7 @@ class Visualizer:
                 ppath.append(self.latent_space[inst_ind])
             t = torch.stack(self.decoder.latent_dim *
                             [torch.tensor(np.linspace(0, 1, 10, endpoint=False))], 1).to(self.device)
+
             ppath = torch.stack(ppath, 0)
             path_len = ppath.shape[0]
 
@@ -868,13 +870,8 @@ class Visualizer_val:
                 ppath.append(self.latent_space[inst_ind])
             t = torch.stack(self.decoder.latent_dim *
                             [torch.tensor(np.linspace(0, 1, 12, endpoint=False))], 1).to(self.device)
-            ppath = torch.stack(ppath, 0)
-            path_len = ppath.shape[0]
 
-            ppath = [(1-t)*ppath[0]+t * ppath[path_len//8], (1-t)*ppath[path_len//8]+t*ppath[2*path_len//8], (1-t) *
-                     ppath[2*path_len//8]+t*ppath[3*path_len//8], (1-t) * ppath[3*path_len//8] +
-                     t*ppath[4*path_len//8], (1-t) * ppath[4*path_len//8]+t*ppath[5*path_len//8],
-                     (1-t) * ppath[5*path_len//8]+t*ppath[6*path_len//8], (1-t) * ppath[6*path_len//8]+t*ppath[7*path_len//8], (1-t)*ppath[7*path_len//8]+t*ppath[-1], ppath[-1].unsqueeze(0)]
+
             path = torch.concatenate(ppath, 0)
             print(path.shape)
             path = torch.unique_consecutive(path, dim=0)

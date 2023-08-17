@@ -650,6 +650,7 @@ def field2bild(points, field, uncertainty, title, box_size, ang_pix):
     y = np.concatenate([points, field], 1)
     #cols = torch.round(cols / torch.max(cols) * 65).long()
     for k in range(y.shape[0]):
+
         f.write('%s %.18g\n' % ('.color', color))
         f.write("%s %.18g %.18g %.18g %.18g %.18g %.18g %.18g\n %.18g\n %.18g\n" % (
             '.arrow', y[k, 0], y[k, 1], y[k, 2], y[k, 3], y[k, 4], y[k, 5], 0.5, 1, 0.5))
@@ -658,6 +659,7 @@ def field2bild(points, field, uncertainty, title, box_size, ang_pix):
     #     f.write('%s %.18g\n' % ('.color', cols[k]))
     #     f.write("%s %.18g %.18g %.18g %.18g\n" % (
     #         '.sphere', y[k, 3], y[k, 4], y[k, 5], uncertainty[k]))
+
     f.close()
 
 

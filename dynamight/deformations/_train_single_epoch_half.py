@@ -55,6 +55,7 @@ def train_epoch(
         outlier_weight=0.0,
         deformation_regularity_weight=1.0,
         deformation_coherence_weight=0.0
+
     )
     denoising_loss = torch.nn.BCELoss()
 
@@ -109,6 +110,8 @@ def train_epoch(
                                  torch.exp(logsigma), dim=1),
                        dim=0)
 
+        #d_loss = denoising_loss(out1, target1)
+
         if epoch < n_warmup_epochs:  # and cons_model.n_points<args.n_gauss:
             geo_loss = torch.zeros(1).to(device)
 
@@ -139,7 +142,9 @@ def train_epoch(
                 loss = rec_loss + latent_weight * latent_loss
 
         loss.backward()
+
         if epoch < n_warmup_epochs:
+
             baseline_parameter_optimizer.step()
 
         elif epoch < n_warmup_epochs and epoch > 0:

@@ -40,6 +40,7 @@ class GeometricLoss:
         edge_weights_dis=None,
     ) -> float:
 
+
         positions_angstroms = deformed_positions * \
             box_size * ang_pix
 

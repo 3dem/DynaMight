@@ -49,7 +49,7 @@ def pdb2graphs(name):
     DNB_c_id = 0
     DNS_c_id = 0
     name = str(name)
-    print(name)
+
     if name.endswith('.pdb'):
         model = pdb.get_structure('model', name)
     elif name.endswith('.cif'):

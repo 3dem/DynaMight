@@ -432,22 +432,11 @@ def backproject_single_image(
                                mode='bilinear', align_corners=True)
         else:
             Vy = Vy[:-1, :-1, :-1]
-        if idx[0].item() % 1000 == 0:
-            mrcfile.write(
-                name='/cephfs/schwab/single_bp1'+str(idx[0].item())+'.mrc',
-                data=(Vy[0, 0]).float().cpu().numpy(),
-                voxel_size=decoder.ang_pix,
-                overwrite=True)
-            mrcfile.write(
-                name='/cephfs/schwab/single_bp2'+str(idx[0].item())+'.mrc',
-                data=(Vy[1, 0]).float().cpu().numpy(),
-                voxel_size=decoder.ang_pix,
-                overwrite=True)
+
 
         Vy = torch.sum(Vy, 0)
 
         return Vy.float(), CTFy.float()
-
 
 def compute_weight_image(
         z_image: torch.Tensor,

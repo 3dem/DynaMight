@@ -277,6 +277,7 @@ def deformable_backprojection_single(
         i += 1
 
         if i % (len(current_data_loader) // 100) == 0:
+
             try:
                 VV = V[:, :, :] * rec_mask
             except:
@@ -359,6 +360,7 @@ def deformable_backprojection_single(
         i += 1
 
         if i % (len(current_data_loader) // 100) == 0:
+
             try:
                 VV = V[:, :, :] * rec_mask
             except:
