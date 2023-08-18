@@ -647,12 +647,12 @@ def optimize_deformations(
                 edge_weights=edge_weights_h1,
                 edge_weights_dis=edge_weights_dis_h1
             )
-            print('current regularization parameter for half 1:', current)
+            
             lambda_regularization_half1 = regularization_factor_h1 * \
                 (0.9 * previous + 0.1 * current)
 
             previous = lambda_regularization_half2
-            
+            print('previous regularization parameter for half 2:', previous)
             current = calibrate_regularization_parameter(
                 dataset=dataset_half2,
                 data_preprocessor=data_preprocessor,
