@@ -1021,7 +1021,7 @@ def optimize_deformations(
                 decoder_half2.image_smoother.A, decoder_half2.image_smoother.B,
                 box_size)
             FF = np.concatenate([ff2, ff2b], 1)
-            print(decoder_half1.warmup)
+            print('warmup optimization:', decoder_half1.warmup)
             ind1 = torch.randint(0, box_size - 1, (1, 1))
             ind2 = torch.randint(0, box_size - 1, (1, 1))
 
