@@ -477,11 +477,6 @@ def optimize_deformations(
                         data_preprocessor,
                     )
 
-                print(torch.max(snr_dis1), torch.min(
-                    snr_dis1), torch.mean(snr_dis1))
-                print(torch.max(snr_dis2), torch.min(
-                    snr_dis2), torch.mean(snr_dis2))
-
                 w1 = 1/torch.maximum(snr_e1, torch.tensor(0.05))
                 w2 = 1/torch.maximum(snr_e2, torch.tensor(0.05))
 
@@ -491,16 +486,10 @@ def optimize_deformations(
                 if epoch > n_warmup_epochs:
                     edge_weights_h1 = w1_dis  # nsr_g1
                     edge_weights_h2 = w2_dis  # nsr_g2
-                    print('maximum edge weight:', torch.max(edge_weights_h1), 'minimum edge weight:', torch.min(
-                        edge_weights_h1), 'mean edge weight:', torch.mean(edge_weights_h1))
-                    print('maximum edge weight:', torch.max(edge_weights_h2), 'minimum edge weight:', torch.min(
-                        edge_weights_h2), 'mean edge weight:', torch.mean(edge_weights_h2))
+
                     edge_weights_dis_h1 = w1_dis
                     edge_weights_dis_h2 = w2_dis
-                    print('maximum edge weight:', torch.max(edge_weights_dis_h1), 'minimum edge weight:', torch.min(
-                        edge_weights_dis_h1), 'mean edge weight:', torch.mean(edge_weights_dis_h1))
-                    print('maximum edge weight:', torch.max(edge_weights_dis_h2), 'minimum edge weight:', torch.min(
-                        edge_weights_dis_h2), 'mean edge weight:', torch.mean(edge_weights_dis_h2))
+
                     edge_weights_h1 = torch.ones_like(w1)
                     edge_weights_h2 = torch.ones_like(w2)
                     edge_weights_dis_h1 = torch.ones_like(w1_dis)
@@ -513,10 +502,7 @@ def optimize_deformations(
                     noise_h1 = torch.ones_like(noise_h1)
                     noise_h2 = torch.ones_like(noise_h2)
 
-                print(torch.max(edge_weights_h1).item(),
-                      torch.min(edge_weights_h1).item())
-                print(torch.max(edge_weights_h2).item(),
-                      torch.min(edge_weights_h2).item())
+
                 print('Average SNR for decoder 1 is:', torch.mean(snr1).item())
                 print('Average SNR for decoder 2 is:', torch.mean(snr2).item())
 
@@ -646,7 +632,7 @@ def optimize_deformations(
                 lambda_regularization_half2 = 0
         else:
             previous = lambda_regularization_half1
-            print('previous:', previous)
+            print('previous regularization parameter for half 1:', previous)
             current = calibrate_regularization_parameter(
                 dataset=dataset_half1,
                 data_preprocessor=data_preprocessor,
@@ -662,12 +648,12 @@ def optimize_deformations(
                 edge_weights=edge_weights_h1,
                 edge_weights_dis=edge_weights_dis_h1
             )
-            print('current:', current)
+            print('current regularization parameter for half 1:', current)
             lambda_regularization_half1 = regularization_factor_h1 * \
                 (0.9 * previous + 0.1 * current)
 
             previous = lambda_regularization_half2
-            print('previous:', previous)
+            
             current = calibrate_regularization_parameter(
                 dataset=dataset_half2,
                 data_preprocessor=data_preprocessor,
@@ -683,7 +669,7 @@ def optimize_deformations(
                 edge_weights=edge_weights_h2,
                 edge_weights_dis=edge_weights_dis_h2
             )
-            print('current:', current)
+            
             lambda_regularization_half2 = regularization_factor_h2 * \
                 (0.9 * previous + 0.1 * current)
 
