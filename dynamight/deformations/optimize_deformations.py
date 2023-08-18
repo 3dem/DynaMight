@@ -1221,7 +1221,7 @@ def optimize_deformations(
                     "Data/deformed_points",
                     tensor_scatter(visualization_data_half1['deformed_points'][0, :, 0],
                                    visualization_data_half1['deformed_points'][0, :, 1],
-                                   'b',
+                                   c = 'b',
                                    s=0.1), epoch)
 
                 summ.add_figure("Data/projection_image",
