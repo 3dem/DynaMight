@@ -361,8 +361,8 @@ class Visualizer:
         ppath = []
         if self.decoder.latent_dim > 2:
             for j in range(path.shape[0]):
-                dist = torch.linalg.norm(torch.tensor(
-                    self.z) - path[j].unsqueeze(0), dim=1)
+                dist = torch.linalg.norm(
+                    self.z - path[j].unsqueeze(0), dim=1)
                 inst_ind = torch.argmin(dist, 0)
                 ppath.append(self.latent_space[inst_ind])
             t = torch.stack(self.decoder.latent_dim *
