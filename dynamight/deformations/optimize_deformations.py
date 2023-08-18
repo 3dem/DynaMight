@@ -444,10 +444,7 @@ def optimize_deformations(
                       decoder_half1.radius_graph.shape[1], ' connections')
                 print('Radius graph for half 2 has',
                       decoder_half2.radius_graph.shape[1], ' connections')
-                print('Neighbour graph for half 1 has',
-                      decoder_half1.neighbour_graph.shape[1], ' connections')
-                print('Neighbour graph for half 2 has',
-                      decoder_half2.neighbour_graph.shape[1], ' connections')
+
 
                 # decoder_half2.combine_graphs()
                 if mask_file != None and epoch > n_warmup_epochs:
