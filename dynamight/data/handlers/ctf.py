@@ -190,7 +190,7 @@ class ContrastTransferFunction:
             y_ls = np.linspace(-grid_size // 2, grid_size // 2 - 1, grid_size)
             x_ls = y_ls if not h_sym else torch.linspace(0, grid_size // 2, grid_size // 2 + 1)
 
-        y, x = torch.meshgrid(torch.Tensor(y_ls), torch.Tensor(x_ls))
+        y, x = torch.meshgrid(torch.Tensor(y_ls), torch.Tensor(x_ls), indexing = 'ij')
         freq_x = x / (grid_size * pixel_size)
         freq_y = y / (grid_size * pixel_size)
 
