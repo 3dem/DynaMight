@@ -544,7 +544,9 @@ def optimize_deformations(
         angles_op.zero_grad()
         shifts_op.zero_grad()
         if epoch > 0:
+            print('----------------------------------------------')
             print('Epoch:', epoch, 'Epoch time:', epoch_t)
+            print('----------------------------------------------')
 
         if epoch == n_warmup_epochs:
             dec_half1_params = add_weight_decay_to_named_parameters(
