@@ -736,7 +736,7 @@ def optimize_deformations(
                 mean_filter = torch.ones(
                     1, 1, filter_width, filter_width, filter_width)
                 x = torch.arange(-filter_width//2+1, filter_width//2+1)
-                X, Y, Z = torch.meshgrid(x, x, x)
+                X, Y, Z = torch.meshgrid(x, x, x, indexing = 'ij')
                 R = torch.sqrt(X**2+Y**2+Z**2) <= filter_width//2
                 mean_filter = mean_filter*R[None, None, :, :, :]
                 mean_filter /= torch.sum(mean_filter)
