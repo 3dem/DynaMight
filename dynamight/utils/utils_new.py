@@ -498,8 +498,10 @@ def tensor_scatter(x, y, c, s=0.1, alpha=0.5, cmap='inferno'):
     backend = matplotlib.rcParams['backend']
     matplotlib.use('pdf')
     fig, ax = plt.subplots(figsize=(5, 5))
-
-    ax.scatter(x, y, alpha=alpha, s=s, c=c, cmap=cmap)
+    if isinstance(c, str):
+        ax.scatter(x, y, alpha=alpha, s=s, c=c)
+    else:
+        ax.scatter(x, y, alpha=alpha, s=s, c=c, cmap=cmap)
     plt.axis("off")
     plt.subplots_adjust(hspace=0, wspace=0)
     ax.set_axis_off()
