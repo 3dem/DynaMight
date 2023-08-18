@@ -835,7 +835,7 @@ def PowerSpec(F1, batch_reduce=None):
     N = F1.shape[-1]
     ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
     end_ind = torch.round(torch.tensor(N / 2)).long()
-    X, Y, Z = torch.meshgrid(ind, ind, ind)
+    X, Y, Z = torch.meshgrid(ind, ind, ind, indexing = 'ij')
     R = torch.fft.fftshift(torch.round(
         torch.pow(X ** 2 + Y ** 2 + Z ** 2, 0.5)).long())
     res = torch.arange(start=0, end=end_ind) ** 2,
@@ -865,7 +865,7 @@ def FSC(F1, F2, ang_pix=1, visualize=False):
     N = F1.shape[-1]
     ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
     end_ind = torch.round(torch.tensor(N / 2)).long()
-    X, Y, Z = torch.meshgrid(ind, ind, ind)
+    X, Y, Z = torch.meshgrid(ind, ind, ind,indexing = 'ij')
     R = torch.fft.fftshift(torch.round(
         torch.pow(X ** 2 + Y ** 2 + Z ** 2, 0.5)).long()).to(device)
 
@@ -1347,7 +1347,7 @@ def calculate_grid_oversampling_factor(box_size: int) -> int:
 def generate_data_normalization_mask(box_size, dampening_factor, device):
     """Multiplies with exponential decay"""
     xx = torch.tensor(np.linspace(-1, 1, box_size, endpoint=False))
-    XX, YY = torch.meshgrid(xx, xx)
+    XX, YY = torch.meshgrid(xx, xx,indexing = 'ij')
     BF = torch.fft.fftshift(
         torch.exp(-(dampening_factor * (XX ** 2 + YY ** 2))), dim=[-1, -2]).to(
         device)
@@ -1381,7 +1381,7 @@ def mask_from_positions(positions, box_size, ang_pix, distance):
         new_ang_pix = ang_pix
         points = (positions*(box_size-1))/ang_pix
     x = (torch.linspace(-0.5, 0.5, new_box)*(box_size-1))/ang_pix
-    grid = torch.meshgrid(x, x, x)
+    grid = torch.meshgrid(x, x, x, indexing = 'ij')
     grid = torch.stack([grid[0].ravel(), grid[1].ravel(), grid[2].ravel()], 1)
     tree = KDTree(points.detach().cpu().numpy())
     (dists, points) = tree.query(grid.cpu().numpy())
