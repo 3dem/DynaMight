@@ -342,7 +342,7 @@ def get_fsc_torch(F1, F2, ang_pix=1, visualize=False):
     N = F1.shape[-1]
     ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
     end_ind = torch.round(torch.tensor(N / 2)).long()
-    X, Y, Z = torch.meshgrid(ind, ind, ind)
+    X, Y, Z = torch.meshgrid(ind, ind, ind, indexing = 'ij')
     R = torch.fft.fftshift(torch.round(torch.pow(X ** 2 + Y ** 2 + Z ** 2, 0.5)).long())
 
     if len(F1.shape) == 3:
