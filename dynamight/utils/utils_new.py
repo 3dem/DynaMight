@@ -280,7 +280,7 @@ def radial_index_mask(box_size):
 
     x = torch.tensor(
         np.linspace(-box_size, box_size, box_size, endpoint=False))
-    X, Y = torch.meshgrid(x, x)
+    X, Y = torch.meshgrid(x, x, indexing = 'ij')
     R = torch.round(torch.sqrt(X ** 2 + Y ** 2))
     Mask = R < (x[-1])
 
@@ -294,7 +294,7 @@ def radial_index_mask3(box_size, scale=None):
     else:
         x = torch.tensor(
             np.linspace(-scale*box_size, scale*box_size, box_size, endpoint=False))
-    X, Y, Z = torch.meshgrid(x, x, x)
+    X, Y, Z = torch.meshgrid(x, x, x,indexing = 'ij')
     R = torch.round(torch.sqrt(X ** 2 + Y ** 2 + Z ** 2))
     Mask = R < (x[-1])
 
@@ -418,7 +418,7 @@ def frc(x, y, ctf, batch_reduce='sum'):
     eps = 1e-8
     ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
 
-    X, Y = torch.meshgrid(ind, ind)
+    X, Y = torch.meshgrid(ind, ind,indexing = 'ij')
     R = torch.cat(batch_size * [torch.fft.fftshift(torch.round(
         torch.pow(X ** 2 + Y ** 2, 0.5)).long()).unsqueeze(0)], 0).to(device)
 
@@ -703,7 +703,7 @@ def power_spec2(F1, batch_reduce=None):
     N = F1.shape[-1]
     ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N).to(device)
     end_ind = torch.round(torch.tensor(N / 2)).long()
-    X, Y = torch.meshgrid(ind, ind)
+    X, Y = torch.meshgrid(ind, ind, indexing = 'ij')
     R = torch.fft.fftshift(torch.round(torch.pow(X ** 2 + Y ** 2, 0.5)).long())
     p_s = scatter_mean(torch.abs(F1.flatten(start_dim=-2)) ** 2,
                        R.flatten().to(F1.device))
@@ -721,7 +721,7 @@ def radial_avg2(F1, batch_reduce=None):
     N = F1.shape[-1]
     ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
     end_ind = torch.round(torch.tensor(N / 2)).long()
-    X, Y = torch.meshgrid(ind, ind)
+    X, Y = torch.meshgrid(ind, ind, indexing = 'ij')
     R = torch.fft.fftshift(torch.round(torch.pow(X ** 2 + Y ** 2, 0.5)).long())
     res = torch.arange(start=0, end=end_ind) ** 2,
     p_s = scatter_mean(torch.abs(F1.flatten(start_dim=-2)),
@@ -735,7 +735,7 @@ def radial_avg2(F1, batch_reduce=None):
 def prof2radim(w, out_value=0):
     N = w.shape[0]
     ind = torch.linspace(-N, N - 1, 2 * N)
-    X, Y = torch.meshgrid(ind, ind)
+    X, Y = torch.meshgrid(ind, ind, indexing = 'ij')
     R = torch.fft.fftshift(torch.round(torch.pow(X ** 2 + Y ** 2, 0.5)).long())
     R[R > N - 1] = N - 1
     W = w[R]
@@ -751,7 +751,7 @@ def RadialAvg(F1, batch_reduce=None):
     N = F1.shape[-1]
     ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
     end_ind = torch.round(torch.tensor(N / 2)).long()
-    X, Y, Z = torch.meshgrid(ind, ind, ind)
+    X, Y, Z = torch.meshgrid(ind, ind, ind, indexing = 'ij')
     R = torch.fft.fftshift(torch.round(
         torch.pow(X ** 2 + Y ** 2 + Z ** 2, 0.5)).long())
     res = torch.arange(start=0, end=end_ind) ** 2,
@@ -771,7 +771,7 @@ def RadialAvgProfile(F1, batch_reduce=None):
     N = F1.shape[-1]
     ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
     end_ind = torch.round(torch.tensor(N / 2)).long()
-    X, Y, Z = torch.meshgrid(ind, ind, ind)
+    X, Y, Z = torch.meshgrid(ind, ind, ind, indexing = 'ij')
     R = torch.fft.fftshift(torch.round(
         torch.pow(X ** 2 + Y ** 2 + Z ** 2, 0.5)).long()).to(device)
     res = torch.arange(start=0, end=end_ind) ** 2,
@@ -796,7 +796,7 @@ def fourier_shift_2d(
 
     if torch.is_tensor(grid_ft):
         ls = torch.linspace(-s // 2, s // 2 - 1, s)
-        y, x = torch.meshgrid(ls, ls)
+        y, x = torch.meshgrid(ls, ls, indexing = 'ij')
         x = x.to(grid_ft.device)
         y = y.to(grid_ft.device)
         dot_prod = 2 * np.pi * \
