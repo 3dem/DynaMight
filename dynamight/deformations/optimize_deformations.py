@@ -742,7 +742,7 @@ def optimize_deformations(
                 ref_vol = decoder_half1.generate_consensus_volume().detach()
                 ref_threshold = compute_threshold(ref_vol[0], percentage=99)
                 ref_mask = ref_vol[0] > ref_threshold
-                filter_width = np.int(np.round(combine_resolution/ang_pix))
+                filter_width = int(np.round(combine_resolution/ang_pix))
                 if filter_width % 2 == 0:
                     filter_width += 1
                 mean_filter = torch.ones(
