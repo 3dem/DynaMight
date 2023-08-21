@@ -43,7 +43,7 @@ class DeformationInterpolator:
         dispM = 2 * torch.ones(bs, 3, size, size,
                                size).to(values.dtype).to(values.device)
         #values = values.cpu()
-        values = torch.tensor(self.grid) - values + torch.tensor(self.grid)
+        values = self.grid - values + self.grid
         dispM[:, :, self.int_grid[:, 2], self.int_grid[:, 1],
               self.int_grid[:, 0]] = values.movedim(
             1, 2)
