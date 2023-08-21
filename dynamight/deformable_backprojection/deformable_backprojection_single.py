@@ -47,7 +47,7 @@ def deformable_backprojection_single(
     mask_reconstruction: bool = Option(False),
     do_deformations: bool = Option(True)
 ):
-    backprojection_directory = output_directory / 'backprojection_new'
+    backprojection_directory = output_directory / 'backprojection'
     backprojection_directory.mkdir(exist_ok=True, parents=True)
 
     device = 'cuda:' + str(gpu_id)
