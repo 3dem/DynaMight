@@ -229,7 +229,7 @@ def deformable_backprojection_single(
     smallgrid, outsmallgrid = get_ess_grid(
         smallgrid, decoder_half1.model_positions, box_size
     )
-    print(smallgrid.shape)
+    
     smallgrid = smallgrid.to(torch.float16)
     fwd_int = DeformationInterpolator(
         device, smallgrid, smallgrid, box_size, downsample
