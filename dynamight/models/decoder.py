@@ -396,7 +396,7 @@ class DisplacementDecoder(torch.nn.Module):
         F = torch.exp(-(1/(self.image_smoother.B[:, None, None,
                                                  None])**2) * R**2)  # * (torch.nn.functional.softmax(self.image_smoother.A[
         FF = torch.real(torch.fft.fftn(torch.fft.fftshift(
-            F, dim=[-3, -2, -1]), dim=[-3, -2, -1], norm='ortho'))*(self.image_smoother.A[:, None, None, None]**2) / self.image_smoother.B[:, None, None, None]
+            F, dim=[-3, -2, -1]), dim=[-3, -2, -1], norm='ortho'))*(1+self.image_smoother.A[:, None, None, None]**2) / self.image_smoother.B[:, None, None, None]
 
         bs = 2
         Filts = torch.stack(bs * [FF], 0)
@@ -459,7 +459,7 @@ class DisplacementDecoder(torch.nn.Module):
         #                                              None,
         #                                              None]**2)
         FF = torch.real(torch.fft.fftn(torch.fft.fftshift(
-            F, dim=[-3, -2, -1]), dim=[-3, -2, -1], norm='ortho'))*(self.image_smoother.A[:, None, None, None]**2)/self.image_smoother.B[:, None, None, None]
+            F, dim=[-3, -2, -1]), dim=[-3, -2, -1], norm='ortho'))*(1+self.image_smoother.A[:, None, None, None]**2)/self.image_smoother.B[:, None, None, None]
         bs = V.shape[0]
         Filts = torch.stack(bs * [FF], 0)
         Filtim = torch.sum(Filts * V, 1)
