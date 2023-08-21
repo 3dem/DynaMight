@@ -908,11 +908,12 @@ def optimize_deformations(
                     consensus_update_rate_h2 = 0
 
             if consensus_update_rate_h1 == 0 and consensus_update_rate_h2 == 0 and initialization_mode != ConsensusInitializationMode.MODEL:
+                if final == 0:
+                    update_epochs = epoch
+                    finalization_epochs = update_epochs//3
                 final += 1
-                update_epochs = epoch
-                finalization_epochs = update_epochs//3
-
-                print('Optimizing the last', finalization_epochs,
+                
+                print('Epoch', final, 'of', finalization_epochs,
                       'epochs without consensus update')
         if mask_file:
             decoder_half1.mask_model_positions()
@@ -1279,5 +1280,5 @@ def optimize_deformations(
             if final > finalization_epochs:
                 break
 
-            final += 1
+    
 
