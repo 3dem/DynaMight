@@ -224,7 +224,7 @@ def deformable_backprojection_single(
     V = torch.zeros(box_size, box_size, box_size).to(device)
     i = 0
     gs = torch.linspace(-0.5, 0.5, box_size // downsample)
-    Gs = torch.meshgrid(gs, gs, gs)
+    Gs = torch.meshgrid(gs, gs, gs,indexing = 'ij')
     smallgrid = torch.stack([Gs[0].ravel(), Gs[1].ravel(), Gs[2].ravel()], 1)
     smallgrid, outsmallgrid = get_ess_grid(
         smallgrid, decoder_half1.model_positions, box_size
