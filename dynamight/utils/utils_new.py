@@ -242,7 +242,7 @@ class FourierImageSmoother(nn.Module):
         # F = torch.exp(-(1/(self.B[:, None, None])**2) *
         #               R**2) * (self.A[:, None, None]**2)
         FF = torch.real(torch.fft.fft2(torch.fft.fftshift(
-            F, dim=[-1, -2]), dim=[-1, -2], norm='ortho'))*(self.A[:, None, None]**2)/self.B[:, None, None]
+            F, dim=[-1, -2]), dim=[-1, -2], norm='ortho'))*(1+self.A[:, None, None]**2)/self.B[:, None, None]
         bs = ims.shape[0]
         Filts = torch.stack(bs * [FF], 0)
         # Filts = torch.fft.ifftshift(Filts, dim=[-2, -1])
