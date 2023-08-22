@@ -145,9 +145,9 @@ def optimize_inverse_deformations(
     inv_half1_params = inv_half1.parameters()
     inv_half2_params = inv_half2.parameters()
     inv_half1_params = add_weight_decay_to_named_parameters(
-        inv_half1, weight_decay=0.003)
+        inv_half1, weight_decay=0.001)
     inv_half2_params = add_weight_decay_to_named_parameters(
-        inv_half2, weight_decay=0.003)
+        inv_half2, weight_decay=0.001)
     learning_rate_h1 = 5e-4
     learning_rate_h2 = 5e-4
     inv_half1_optimizer = torch.optim.Adam(
