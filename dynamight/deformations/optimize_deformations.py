@@ -293,7 +293,6 @@ def optimize_deformations(
                 fits = False
                 while fits == False:
                     try:
-                        
                         for decoder in (decoder_half1, decoder_half2):
                             decoder.initialize_physical_parameters(reference_volume=Ivol)
                             summ.add_figure("Data/cons_points_z_half1",
@@ -303,10 +302,12 @@ def optimize_deformations(
                             tensor_scatter(decoder_half2.model_positions[:, 0],
                                            decoder_half2.model_positions[:, 1], c=torch.ones(decoder_half2.model_positions.shape[0]), s=3), -1)
                         fits = True
+                        print('consensus gaussian models initialized')
                     except:
                         print('volume too large: downsampling')
                         Ivol = torch.nn.functional.avg_pool3d(
                         Ivol[None, None], (2, 2, 2))
+                        Ivol = Ivol[0,0]
 
 
         if mask_file:
