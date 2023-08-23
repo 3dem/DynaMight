@@ -76,7 +76,7 @@ def optimize_deformations(
     apply_bfactor: float = 0,
     particle_diameter: Optional[float] = None,
     soft_edge_width: float = 20,
-    batch_size: int = 1024,
+    batch_size: int = 96,
     gpu_id: Optional[int] = 0,
     n_epochs: int = Option(300),
     n_threads: int = 4,
