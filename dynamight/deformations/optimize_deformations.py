@@ -308,6 +308,7 @@ def optimize_deformations(
                         Ivol = torch.nn.functional.avg_pool3d(
                         Ivol[None, None], (2, 2, 2))
                         Ivol = Ivol[0,0]
+                        print(Ival.shape)
 
 
         if mask_file:
