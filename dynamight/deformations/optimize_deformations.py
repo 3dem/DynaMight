@@ -76,7 +76,7 @@ def optimize_deformations(
     apply_bfactor: float = 0,
     particle_diameter: Optional[float] = None,
     soft_edge_width: float = 20,
-    batch_size: int = 100,
+    batch_size: int = 1024,
     gpu_id: Optional[int] = 0,
     n_epochs: int = Option(300),
     n_threads: int = 4,
@@ -683,28 +683,65 @@ def optimize_deformations(
               lambda_regularization_half2)
 
         # training starts!
-        latent_space, losses_half1, displacement_statistics_half1, idix_half1, visualization_data_half1 = train_epoch(
-            encoder_half1,
-            enc_half1_optimizer,
-            decoder_half1,
-            dec_half1_optimizer,
-            physical_parameter_optimizer_half1,
-            baseline_parameter_optimizer_half1,
-            data_loader_half1,
-            angles,
-            shifts,
-            data_preprocessor,
-            epoch,
-            n_warmup_epochs,
-            data_normalization_mask,
-            latent_space,
-            latent_weight=beta,
-            regularization_parameter=lambda_regularization_half1,
-            consensus_update_pooled_particles=consensus_update_pooled_particles,
-            regularization_mode=regularization_mode_half1,
-            edge_weights=edge_weights_h1,
-            edge_weights_dis=edge_weights_dis_h1
-        )
+        if epoch == 0:
+            batch = False
+            while batch == False:
+                try:
+                    latent_space, losses_half1, displacement_statistics_half1, idix_half1, visualization_data_half1 = train_epoch(
+                        encoder_half1,
+                        enc_half1_optimizer,
+                        decoder_half1,
+                        dec_half1_optimizer,
+                        physical_parameter_optimizer_half1,
+                        baseline_parameter_optimizer_half1,
+                        data_loader_half1,
+                        angles,
+                        shifts,
+                        data_preprocessor,
+                        epoch,
+                        n_warmup_epochs,
+                        data_normalization_mask,
+                        latent_space,
+                        latent_weight=beta,
+                        regularization_parameter=lambda_regularization_half1,
+                        consensus_update_pooled_particles=consensus_update_pooled_particles,
+                        regularization_mode=regularization_mode_half1,
+                        edge_weights=edge_weights_h1,
+                        edge_weights_dis=edge_weights_dis_h1
+                    )
+                    print('determined batch size of', batch_size)
+                    batch = True
+                except: 
+                    batch_size = batch_size //2
+    
+                    kld_weight = batch_size / len(particle_dataset)
+                    beta = kld_weight**2 * 0.01 
+                    print('trying new batch size of', batch_size)
+                    
+                    data_loader_half1 = DataLoader(
+                    dataset=dataset_half1,
+                    batch_size=batch_size,
+                    num_workers=n_workers,
+                    shuffle=True,
+                    pin_memory=True
+                    )
+            
+                    data_loader_half2 = DataLoader(
+                    dataset=dataset_half2,
+                    batch_size=batch_size,
+                    num_workers=n_workers,
+                    shuffle=True,
+                    pin_memory=True
+                    )
+            
+                    data_loader_val = DataLoader(
+                    dataset=val_dataset,
+                    batch_size=batch_size,
+                    num_workers=n_workers,
+                    shuffle=True,
+                    pin_memory=True
+                    )
+                
 
         ref_pos_h1 = update_model_positions(particle_dataset, data_preprocessor, encoder_half1,
                                             decoder_half1, shifts, angles,  idix_half1, consensus_update_pooled_particles, batch_size)
