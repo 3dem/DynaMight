@@ -242,16 +242,17 @@ def optimize_deformations(
 
 
                 
-    #with mrcfile.open(initial_model) as mrc:
-    #    Ivol = torch.tensor(mrc.data)
-    #    if Ivol.shape[0] > 360:
-    #        Ivols = torch.nn.functional.avg_pool3d(
-    #            Ivol[None, None], (2, 2, 2))
-    #        Ivols = Ivols[0, 0]
-    #    else:
-    #        Ivols = Ivol
-    #    if initial_threshold == None:
-    #        initial_threshold = compute_threshold(Ivol, percentage=99)
+    with mrcfile.open(initial_model) as mrc:
+        Ivol = torch.tensor(mrc.data)
+
+    if initial_threshold == None:
+        initial_threshold = compute_threshold(Ivol, percentage=99)
+    initial_points = initialize_points_from_volume(
+    Ivol.movedim(0, 2).movedim(0, 1),
+    threshold=initial_threshold,
+    n_points=n_points,
+                        )
+    
     # define optimisation parameters
     pos_enc_dim = n_positional_encoding_dimensions
 
@@ -292,14 +293,7 @@ def optimize_deformations(
                 fits = False
                 while fits == False:
                     try:
-                        if initial_threshold == None:
-                            initial_threshold = compute_threshold(Ivol, percentage=99)
-                        print('Setting threshold for the initialization to:', initial_threshold)
-                        initial_points = initialize_points_from_volume(
-                            Ivol.movedim(0, 2).movedim(0, 1),
-                            threshold=initial_threshold,
-                            n_points=n_points,
-                        )
+                        
                         for decoder in (decoder_half1, decoder_half2):
                             decoder.initialize_physical_parameters(reference_volume=Ivol)
                             summ.add_figure("Data/cons_points_z_half1",
