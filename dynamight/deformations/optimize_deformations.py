@@ -254,6 +254,7 @@ def optimize_deformations(
                         threshold=initial_threshold,
                         n_points=n_points,
                     )
+                    fits = True
                 except:
                     Ivol = torch.nn.functional.avg_pool3d(
                     Ivol[None, None], (2, 2, 2))
