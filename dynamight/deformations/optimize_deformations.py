@@ -243,20 +243,21 @@ def optimize_deformations(
     if initialization_mode == ConsensusInitializationMode.MAP:
         with mrcfile.open(initial_model) as mrc:
             Ivol = torch.tensor(mrc.data)
-            if Ivol.shape[0] > 360:
-                Ivols = torch.nn.functional.avg_pool3d(
+            fits = False
+            while fits == False:
+                try:
+                    if initial_threshold == None:
+                        initial_threshold = compute_threshold(Ivol, percentage=99)
+                    print('Setting threshold for the initialization to:', initial_threshold)
+                    initial_points = initialize_points_from_volume(
+                        Ivol.movedim(0, 2).movedim(0, 1),
+                        threshold=initial_threshold,
+                        n_points=n_points,
+                    )
+                except:
+                    Ivol = torch.nn.functional.avg_pool3d(
                     Ivol[None, None], (2, 2, 2))
-                Ivols = Ivols[0, 0]
-            else:
-                Ivols = Ivol
-            if initial_threshold == None:
-                initial_threshold = compute_threshold(Ivol, percentage=99)
-            print('Setting threshold for the initialization to:', initial_threshold)
-            initial_points = initialize_points_from_volume(
-                Ivols.movedim(0, 2).movedim(0, 1),
-                threshold=initial_threshold,
-                n_points=n_points,
-            )
+                
     with mrcfile.open(initial_model) as mrc:
         Ivol = torch.tensor(mrc.data)
         if Ivol.shape[0] > 360:
