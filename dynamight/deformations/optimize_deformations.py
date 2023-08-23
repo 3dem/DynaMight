@@ -699,7 +699,7 @@ def optimize_deformations(
                         shifts,
                         data_preprocessor,
                         epoch,
-                        n_warmup_epochs,
+                        n_warmup_epochs = 0,
                         data_normalization_mask,
                         latent_space,
                         latent_weight=beta,
@@ -740,6 +740,29 @@ def optimize_deformations(
                     num_workers=n_workers,
                     shuffle=True,
                     pin_memory=True
+                    )
+        else:
+            latent_space, losses_half1, displacement_statistics_half1, idix_half1, visualization_data_half1 = train_epoch(
+                        encoder_half1,
+                        enc_half1_optimizer,
+                        decoder_half1,
+                        dec_half1_optimizer,
+                        physical_parameter_optimizer_half1,
+                        baseline_parameter_optimizer_half1,
+                        data_loader_half1,
+                        angles,
+                        shifts,
+                        data_preprocessor,
+                        epoch,
+                        n_warmup_epochs,
+                        data_normalization_mask,
+                        latent_space,
+                        latent_weight=beta,
+                        regularization_parameter=lambda_regularization_half1,
+                        consensus_update_pooled_particles=consensus_update_pooled_particles,
+                        regularization_mode=regularization_mode_half1,
+                        edge_weights=edge_weights_h1,
+                        edge_weights_dis=edge_weights_dis_h1
                     )
                 
 
