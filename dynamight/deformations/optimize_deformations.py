@@ -303,12 +303,12 @@ def optimize_deformations(
                                            decoder_half2.model_positions[:, 1], c=torch.ones(decoder_half2.model_positions.shape[0]), s=3), -1)
                         fits = True
                         print('consensus gaussian models initialized')
-                    except:
-                        print('volume too large: downsampling')
+                    except Exception as error:
+                        print('volume too large: downsampling', error)
                         Ivol = torch.nn.functional.avg_pool3d(
                         Ivol[None, None], (2, 2, 2))
                         Ivol = Ivol[0,0]
-                        print(Ival.shape)
+                        print(Ivol.shape)
 
 
         if mask_file:
