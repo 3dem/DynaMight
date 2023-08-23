@@ -287,6 +287,9 @@ def optimize_deformations(
         }
         decoder_half1 = DisplacementDecoder(**decoder_kwargs).to(device)
         decoder_half2 = DisplacementDecoder(**decoder_kwargs).to(device)
+
+        time.sleep(10)
+        
         if initialization_mode == ConsensusInitializationMode.MAP:
             with mrcfile.open(initial_model) as mrc:
                 Ivol = torch.tensor(mrc.data)
