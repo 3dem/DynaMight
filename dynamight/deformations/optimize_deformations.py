@@ -240,25 +240,7 @@ def optimize_deformations(
     else:
         n_points = initial_points.shape[0]
 
-    if initialization_mode == ConsensusInitializationMode.MAP:
-        with mrcfile.open(initial_model) as mrc:
-            Ivol = torch.tensor(mrc.data)
-            fits = False
-            while fits == False:
-                try:
-                    if initial_threshold == None:
-                        initial_threshold = compute_threshold(Ivol, percentage=99)
-                    print('Setting threshold for the initialization to:', initial_threshold)
-                    initial_points = initialize_points_from_volume(
-                        Ivol.movedim(0, 2).movedim(0, 1),
-                        threshold=initial_threshold,
-                        n_points=n_points,
-                    )
-                    fits = True
-                except:
-                    print('volume too large: downsampling')
-                    Ivol = torch.nn.functional.avg_pool3d(
-                    Ivol[None, None], (2, 2, 2))
+
                 
     #with mrcfile.open(initial_model) as mrc:
     #    Ivol = torch.tensor(mrc.data)
@@ -304,15 +286,34 @@ def optimize_deformations(
         }
         decoder_half1 = DisplacementDecoder(**decoder_kwargs).to(device)
         decoder_half2 = DisplacementDecoder(**decoder_kwargs).to(device)
-
-        for decoder in (decoder_half1, decoder_half2):
-            decoder.initialize_physical_parameters(reference_volume=Ivol)
-            summ.add_figure("Data/cons_points_z_half1",
+        if initialization_mode == ConsensusInitializationMode.MAP:
+            with mrcfile.open(initial_model) as mrc:
+                Ivol = torch.tensor(mrc.data)
+                fits = False
+                while fits == False:
+                    try:
+                        if initial_threshold == None:
+                            initial_threshold = compute_threshold(Ivol, percentage=99)
+                        print('Setting threshold for the initialization to:', initial_threshold)
+                        initial_points = initialize_points_from_volume(
+                            Ivol.movedim(0, 2).movedim(0, 1),
+                            threshold=initial_threshold,
+                            n_points=n_points,
+                        )
+                        for decoder in (decoder_half1, decoder_half2):
+                            decoder.initialize_physical_parameters(reference_volume=Ivol)
+                            summ.add_figure("Data/cons_points_z_half1",
                             tensor_scatter(decoder_half1.model_positions[:, 0],
                                            decoder_half1.model_positions[:, 1], c=torch.ones(decoder_half1.model_positions.shape[0]), s=3), -1)
-            summ.add_figure("Data/cons_points_z_half2",
+                            summ.add_figure("Data/cons_points_z_half2",
                             tensor_scatter(decoder_half2.model_positions[:, 0],
                                            decoder_half2.model_positions[:, 1], c=torch.ones(decoder_half2.model_positions.shape[0]), s=3), -1)
+                        fits = True
+                    except:
+                        print('volume too large: downsampling')
+                        Ivol = torch.nn.functional.avg_pool3d(
+                        Ivol[None, None], (2, 2, 2))
+
 
         if mask_file:
             with mrcfile.open(mask_file) as mrc:
