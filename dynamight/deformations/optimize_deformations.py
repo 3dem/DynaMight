@@ -699,7 +699,7 @@ def optimize_deformations(
                         shifts,
                         data_preprocessor,
                         epoch,
-                        n_warmup_epochs = 0,
+                        0,
                         data_normalization_mask,
                         latent_space,
                         latent_weight=beta,
