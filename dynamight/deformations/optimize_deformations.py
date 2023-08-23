@@ -256,19 +256,20 @@ def optimize_deformations(
                     )
                     fits = True
                 except:
+                    print('volume too large: downsampling')
                     Ivol = torch.nn.functional.avg_pool3d(
                     Ivol[None, None], (2, 2, 2))
                 
-    with mrcfile.open(initial_model) as mrc:
-        Ivol = torch.tensor(mrc.data)
-        if Ivol.shape[0] > 360:
-            Ivols = torch.nn.functional.avg_pool3d(
-                Ivol[None, None], (2, 2, 2))
-            Ivols = Ivols[0, 0]
-        else:
-            Ivols = Ivol
-        if initial_threshold == None:
-            initial_threshold = compute_threshold(Ivol, percentage=99)
+    #with mrcfile.open(initial_model) as mrc:
+    #    Ivol = torch.tensor(mrc.data)
+    #    if Ivol.shape[0] > 360:
+    #        Ivols = torch.nn.functional.avg_pool3d(
+    #            Ivol[None, None], (2, 2, 2))
+    #        Ivols = Ivols[0, 0]
+    #    else:
+    #        Ivols = Ivol
+    #    if initial_threshold == None:
+    #        initial_threshold = compute_threshold(Ivol, percentage=99)
     # define optimisation parameters
     pos_enc_dim = n_positional_encoding_dimensions
 
