@@ -44,3 +44,9 @@ To use the estimated deformations in a modified weighted backprojection. We have
 Additional parameters are the number of epochs (**--n-epochs**) and the possibility to store the deformations in RAM (**--save-deformations**), which speeds up the training process.
 
 ## Step 3: Deformed backprojection
+
+Once the inverse deformations have been estimated, they can be used for a backprojection algorithm to improve the reconstruction in felxible areas. The backprojection is implemented in the function **deformable-backprojection**, which takes the checkpoint file of the forward deformations as input.
+
+**dynamight deformable-backprojection /dataset/output --vae-directory /dataset/output/forward_deformations/checkpoints/120.pth**
+
+This function also has two additional useful arguments. The first one is **--downsample**, which takes an integer to decrease the computation of the inverse deformation field to a smaller box and then upsamples it to the full size. This makes it computationally more efficient, using less network evaluations. The second argument is **--backprojection-batch-size** that has to be adapted to the memory size of the gpu.
