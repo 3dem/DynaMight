@@ -16,6 +16,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvas
 from dynamight.utils.utils_new import compute_threshold, bezier_curve, make_equidistant, field2bild, points2bild
 from matplotlib.path import Path
 import mrcfile
+import os
 
 
 class Visualizer:
@@ -121,7 +122,8 @@ class Visualizer:
         )
         self.rep_action_menu = widgets.ComboBox(
             label='action',
-            choices=['click', 'trajectory', 'particle number', 'starfile']
+            choices=['click', 'trajectory',
+                     'particle number', 'subset selection']
         )
         self.rep_action_widget = widgets.Container(
             widgets=[self.rep_action_menu]
@@ -161,9 +163,6 @@ class Visualizer:
         self.lasso = LassoSelector(ax=self.axes1, onselect=self.on_select,
                                    props=self.line, button=2, useblit=True)
         self.lasso.disconnect_events()
-        self.star_nr = 0
-        self.movie_nr = 0
-        self.map_nr = 0
         self.indices = indices
         self.poly = PolygonSelector(ax=self.axes1, onselect=self.get_part_nr, props=self.line,
                                     useblit=True)
@@ -171,6 +170,9 @@ class Visualizer:
         self.output_directory = output_directory
         self.atomic_model = atomic_model
         self.half_set = half_set
+        self.star_nr = 1
+        self.movie_nr = 1
+        self.map_nr = 1
         self.save_movie = widgets.PushButton(
             value=False, text='save map/movie')
         self.save_movie_widget = widgets.Container(widgets=[self.save_movie])
@@ -305,7 +307,7 @@ class Visualizer:
                                         useblit=True)
             self.lat_canv.draw_idle()
 
-        elif selected_label == 'starfile':
+        elif selected_label == 'subset selection':
             self.fig.canvas.mpl_disconnect(self.cid)
             self.poly.disconnect_events()
             self.lasso.disconnect_events()
@@ -426,6 +428,11 @@ class Visualizer:
     def save_starfile(self, verts):
         if (self.output_directory / 'subsets').exists():
             star_directory = self.output_directory / 'subsets'
+            count = 1
+            for filename in os.listdir(star_directory):
+                if 'half'+str(self.half_set) in filename:
+                    count += 1
+            self.star_nr = count
         else:
             star_directory = self.output_directory / 'subsets'
             star_directory.mkdir(exist_ok=True, parents=True)
@@ -439,31 +446,38 @@ class Visualizer:
         print('created star file with ', len(ninds[0]), 'particles')
         starfile.write(new_star, star_directory /
                        ('subset_' + str(self.star_nr) + '_half' + str(self.half_set) + '.star'))
-        np.savez(
-            star_directory / ('subset_' +
-                              str(self.star_nr) + '_indices_' + str(self.half_set) + '.npz'),
-            nindsfull)
-        self.star_nr += 1
+        # np.savez(
+        #     star_directory / ('subset_' +
+        #                       str(self.star_nr) + '_indices_' + str(self.half_set) + '.npz'),
+        #     nindsfull)
         self.poly.disconnect_events()
         self.poly = PolygonSelector(ax=self.axes1, onselect=self.save_starfile, props=self.line,
                                     useblit=True)
+        print('Saved star file with name ', 'subset'+str(self.star_nr) +
+              '_half'+str(self.half_set)+'.star in the subsets directory')
 
     def save_series(self, event):
         if len(self.vol_layer.data.shape) > 3:
             if (self.output_directory / 'movies').exists():
                 movie_directory = self.output_directory / 'movies'
+                count = 1
+                for filename in os.listdir(movie_directory):
+                    if 'half'+str(self.half_set) in filename:
+                        count += 1
+                self.movie_nr = count
                 current_movie_directory = movie_directory / \
-                    ('movie_' + str(self.movie_nr).zfill(2))
+                    ('movie' + str(self.movie_nr).zfill(2) +
+                     '_half'+str(self.half_set))
                 current_movie_directory.mkdir(exist_ok=True, parents=True)
             else:
                 movie_directory = self.output_directory / 'movies'
                 movie_directory.mkdir(exist_ok=True, parents=True)
                 current_movie_directory = movie_directory / \
-                    ('movie_' + str(self.movie_nr).zfill(2))
+                    ('movie' + str(self.movie_nr).zfill(2) +
+                     '_half'+str(self.half_set))
                 current_movie_directory.mkdir(exist_ok=True, parents=True)
 
             V = self.vol_layer.data
-            self.movie_nr += 1
             for i in range(V.shape[0]):
                 with mrcfile.new(current_movie_directory / ('volume'+str(i).zfill(3)+'.mrc'), overwrite=True) as mrc:
                     mrc.set_data(V[i])
@@ -472,12 +486,18 @@ class Visualizer:
         else:
             if (self.output_directory / 'maps').exists():
                 map_directory = self.output_directory / 'maps'
+                count = 1
+                for filename in os.listdir(map_directory):
+                    if 'half'+str(self.half_set) in filename:
+                        count += 1
+                self.map_nr = count
             else:
                 map_directory = self.output_directory / 'maps'
+                map_directory.mkdir(exist_ok=True, parents=True)
 
             V = self.vol_layer.data
-            self.map_nr += 1
-            with mrcfile.new(map_directory / ('map'+str(self.map_nr).zfill(3)+'.mrc'), overwrite=True) as mrc:
+
+            with mrcfile.new(map_directory / ('map'+str(self.map_nr).zfill(3)+'_half'+str(self.half_set)+'.mrc'), overwrite=True) as mrc:
                 mrc.set_data(V)
                 mrc.voxel_size = self.decoder.ang_pix
             self.save_movie.null_value
@@ -595,7 +615,8 @@ class Visualizer_val:
         )
         self.rep_action_menu = widgets.ComboBox(
             label='action',
-            choices=['click', 'trajectory', 'particle number', 'starfile']
+            choices=['click', 'trajectory',
+                     'particle number', 'subset selection']
         )
         self.rep_action_widget = widgets.Container(
             widgets=[self.rep_action_menu]
@@ -635,9 +656,10 @@ class Visualizer_val:
         self.lasso = LassoSelector(ax=self.axes1, onselect=self.on_select,
                                    props=self.line, button=2, useblit=True)
         self.lasso.disconnect_events()
-        self.star_nr = 0
-        self.movie_nr = 0
-        self.def_nr = 0
+        self.movie_nr = 1
+        self.def_nr = 1
+        self.star_nr = 1
+        self.map_nr = 1
         self.indices = indices
         self.poly = PolygonSelector(ax=self.axes1, onselect=self.get_part_nr, props=self.line,
                                     useblit=True)
@@ -645,7 +667,8 @@ class Visualizer_val:
         self.output_directory = output_directory
         self.atomic_model = atomic_model
         self.half_set = half_set
-        self.save_movie = widgets.PushButton(value=False, text='save movie')
+        self.save_movie = widgets.PushButton(
+            value=False, text='save map/movie')
         self.save_movie_widget = widgets.Container(widgets=[self.save_movie])
         self.movie_wi = self.viewer.window.add_dock_widget(
             self.save_movie_widget, area='bottom')
@@ -779,7 +802,7 @@ class Visualizer_val:
                                         useblit=True)
             self.lat_canv.draw_idle()
 
-        elif selected_label == 'starfile':
+        elif selected_label == 'subsete selection':
             self.fig.canvas.mpl_disconnect(self.cid)
             self.poly.disconnect_events()
             self.lasso.disconnect_events()
@@ -829,8 +852,8 @@ class Visualizer_val:
                 err = dnorm ** 2
                 sig = torch.sum(dis_h1[0]*dis_h2[0], -1)
 
-                field2bild(self.decoder_h1.model_positions[::10].detach().cpu(), pos_h1[0, ::10].detach(
-                ).cpu(), dnorm, '/cephfs/schwab/defo'+str(self.def_nr).zfill(3), self.decoder_h1.box_size, self.decoder_h1.ang_pix)
+                # field2bild(self.decoder_h1.model_positions[::10].detach().cpu(), pos_h1[0, ::10].detach(
+                # ).cpu(), dnorm, '/cephfs/schwab/defo'+str(self.def_nr).zfill(3), self.decoder_h1.box_size, self.decoder_h1.ang_pix)
                 # points2bild([self.decoder_h1.model_positions[::150]], [torch.ones(
                 #    self.decoder_h1.model_positions[::150].shape[0], 1)], '/cephfs/schwab/points_h1', self.decoder_h1.box_size, self.decoder_h1.ang_pix)
                 # points2bild([self.decoder_h2.model_positions[::150]], [torch.ones(
@@ -921,6 +944,11 @@ class Visualizer_val:
     def save_starfile(self, verts):
         if (self.output_directory / 'subsets').exists():
             star_directory = self.output_directory / 'subsets'
+            count = 1
+            for filename in os.listdir(star_directory):
+                if 'half'+str(self.half_set) in filename:
+                    count += 1
+            self.star_nr = count
         else:
             star_directory = self.output_directory / 'subsets'
             star_directory.mkdir(exist_ok=True, parents=True)
@@ -932,20 +960,28 @@ class Visualizer_val:
         new_star['particles'] = self.star_data['particles'].loc[list(
             nindsfull)]
         print('created star file with ', len(ninds[0]), 'particles')
+
         starfile.write(new_star, star_directory /
                        ('subset_' + str(self.star_nr) + '_half' + str(self.half_set) + '.star'))
-        np.savez(
-            star_directory / ('subset_' +
-                              str(self.star_nr) + '_indices_' + str(self.half_set) + '.npz'),
-            nindsfull)
-        self.star_nr += 1
+        # np.savez(
+        #     star_directory / ('subset_' +
+        #                       str(self.star_nr) + '_indices_' + str(self.half_set) + '.npz'),
+        #     nindsfull)
+
         self.poly.disconnect_events()
         self.poly = PolygonSelector(ax=self.axes1, onselect=self.save_starfile, props=self.line,
                                     useblit=True)
+        print('Saved star file with name ', 'subset'+str(self.star_nr) +
+              '_half'+str(self.half_set)+'.star in the subsets directory')
 
     def save_series(self, event):
         if (self.output_directory / 'movies').exists():
             movie_directory = self.output_directory / 'movies'
+            count = 1
+            for filename in os.listdir(movie_directory):
+                if 'half'+str(self.half_set) in filename:
+                    count += 1
+            self.movie_nr = count
             current_movie_directory = movie_directory / \
                 ('movie_' + str(self.movie_nr).zfill(2))
             current_movie_directory.mkdir(exist_ok=True, parents=True)
@@ -957,7 +993,6 @@ class Visualizer_val:
             current_movie_directory.mkdir(exist_ok=True, parents=True)
 
         V = self.vol_layer.data
-        self.movie_nr += 1
         for i in range(V.shape[0]):
             with mrcfile.new(current_movie_directory / ('volume'+str(i).zfill(3)+'.mrc'), overwrite=True) as mrc:
                 mrc.set_data(V[i])
