@@ -363,13 +363,9 @@ class DisplacementDecoder(torch.nn.Module):
         return nn.Sequential(*layers)
 
     def generate_consensus_volume(self):
-        if self.box_size > 360:
-            vol_box = self.box_size // 2
-            self.vol_box = vol_box
-        else:
-            vol_box = self.box_size
+        scaling_fac = self.box_size/self.vol_box
         self.batch_size = 2
-        p2v = PointsToVolumes(vol_box, self.n_classes,
+        p2v = PointsToVolumes(self.vol_box, self.n_classes,
                               self.grid_oversampling_factor)
         amplitudes = torch.stack(
             2 * [self.amp*torch.nn.functional.softmax(self.ampvar, dim=0)], dim=0
@@ -393,10 +389,10 @@ class DisplacementDecoder(torch.nn.Module):
                 self.grid_oversampling_factor*self.vol_box)
         R = torch.stack(self.image_smoother.n_classes * [R.to(self.device)], 0)
 
-        F = torch.exp(-(1/(self.image_smoother.B[:, None, None,
-                                                 None])**2) * R**2)  # * (torch.nn.functional.softmax(self.image_smoother.A[
+        F = torch.exp(-(scaling_fac/(self.image_smoother.B[:, None, None,
+                                                           None])**2) * R**2)  # * (torch.nn.functional.softmax(self.image_smoother.A[
         FF = torch.real(torch.fft.fftn(torch.fft.fftshift(
-            F, dim=[-3, -2, -1]), dim=[-3, -2, -1], norm='ortho'))*(1+self.image_smoother.A[:, None, None, None]**2) / self.image_smoother.B[:, None, None, None]
+            F, dim=[-3, -2, -1]), dim=[-3, -2, -1], norm='ortho'))*(1+self.image_smoother.A[:, None, None, None]**2)*scaling_fac / (self.image_smoother.B[:, None, None, None])
 
         bs = 2
         Filts = torch.stack(bs * [FF], 0)
@@ -409,11 +405,8 @@ class DisplacementDecoder(torch.nn.Module):
 
     def generate_volume(self, z, r, shift):
         # controls how points are rendered as volumes
-        if self.box_size > 360:
-            vol_box = self.box_size // 2
-        else:
-            vol_box = self.box_size
-        p2v = PointsToVolumes(vol_box, self.n_classes,
+        scaling_fac = self.box_size/self.vol_box
+        p2v = PointsToVolumes(self.vol_box, self.n_classes,
                               self.grid_oversampling_factor)
         bs = z.shape[0]
         amplitudes = torch.stack(
@@ -448,8 +441,8 @@ class DisplacementDecoder(torch.nn.Module):
         #                                              :, None,
         #                                              None,
         #                                              None], 0)**2)# /self.image_smoother.B[:, None, None, None])
-        F = torch.exp(-(1/(self.image_smoother.B[:, None, None,
-                                                 None])**2) * R**2)  # * (torch.nn.functional.softmax(self.image_smoother.A[
+        F = torch.exp(-(scaling_fac/(self.image_smoother.B[:, None, None,
+                                                           None])**2) * R**2)  # * (torch.nn.functional.softmax(self.image_smoother.A[
         #:, None,
         # None,
         # None]))
@@ -459,7 +452,7 @@ class DisplacementDecoder(torch.nn.Module):
         #                                              None,
         #                                              None]**2)
         FF = torch.real(torch.fft.fftn(torch.fft.fftshift(
-            F, dim=[-3, -2, -1]), dim=[-3, -2, -1], norm='ortho'))*(1+self.image_smoother.A[:, None, None, None]**2)/self.image_smoother.B[:, None, None, None]
+            F, dim=[-3, -2, -1]), dim=[-3, -2, -1], norm='ortho'))*(1+self.image_smoother.A[:, None, None, None]**2)*scaling_fac/(self.image_smoother.B[:, None, None, None])
         bs = V.shape[0]
         Filts = torch.stack(bs * [FF], 0)
         Filtim = torch.sum(Filts * V, 1)
