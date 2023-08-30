@@ -31,7 +31,8 @@ def optimize_inverse_deformations(
     particle_diameter: Optional[float] = Option(None),
     mask_soft_edge_width: int = Option(20),
     data_loader_threads: int = Option(4),
-    save_deformations: bool = Option(False)
+    save_deformations: bool = Option(False),
+    pipeline_control = None
 ):
 
     backward_deformations_directory = output_directory / 'inverse_deformations'
