@@ -565,7 +565,7 @@ def visualize_latent(z, c, s=0.1, alpha=0.5, cmap='jet', method='umap'):
     matplotlib.use(backend)
 
     return fig
-
+    
 
 def write_xyz(
     points: torch.Tensor,
