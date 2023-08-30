@@ -171,7 +171,7 @@ def train_epoch(
                 torch.linalg.norm(deformed_points.detach().cpu(), dim=2), dim=1)
             if ref_mask != None:
                 counts = count_interior_points(
-                    new_points, ref_mask, decoder.box_size, decoder.ang_pix).cpu()
+                    new_points, ref_mask, decoder.vol_box, decoder.ang_pix).cpu()
             if ref_mask != None and batch_ndx == 0:
                 ref_counts = counts
                 idix = idx.cpu()
