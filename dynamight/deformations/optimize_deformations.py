@@ -372,6 +372,7 @@ def optimize_deformations(
     old_loss_half2 = 1e8
     old2_loss_half1 = 1e8
     old2_loss_half2 = 1e8
+    finalization_epochs = 1e4
 
     # connectivity graphs are computed differently depending on the initialisation mode
     with torch.no_grad():
