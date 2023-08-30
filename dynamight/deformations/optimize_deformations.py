@@ -82,7 +82,8 @@ def optimize_deformations(
     n_threads: int = 4,
     preload_images: bool = True,
     n_workers: int = 4,
-    combine_resolution: Optional[float] = 8
+    combine_resolution: Optional[float] = 8,
+    pipeline_control = None
 ):
     # create directory structure
     deformations_directory = output_directory / 'forward_deformations'
