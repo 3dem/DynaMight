@@ -363,7 +363,7 @@ def optimize_deformations(
     '-----------------------------------------------------------------------------------------------f---------------------'
 
     kld_weight = batch_size / len(particle_dataset)
-    beta = kld_weight**2 * 0.01  # 0.006
+    beta = kld_weight**2 * 0.001  # 0.006
 
     epoch_t = 0
     if n_warmup_epochs == None:
