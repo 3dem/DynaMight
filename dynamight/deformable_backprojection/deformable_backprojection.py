@@ -51,6 +51,8 @@ def deformable_backprojection(
     backprojection_directory = output_directory / 'backprojection'
     backprojection_directory.mkdir(exist_ok=True, parents=True)
 
+    backprojection_batch_size = batch_size
+    
     device = 'cuda:' + str(gpu_id)
     if inverse_deformation_directory is None:
         inverse_deformation_directory = output_directory / 'inverse_deformations'
