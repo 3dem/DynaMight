@@ -96,9 +96,9 @@ def calibrate_regularization_parameter(
 
     if recompute_data_normalization == True:
 
-        return (0.5 * (data_norm / np.maximum(geometry_norm, 0.005*data_norm))), Sig, Err
+        return (0.5 * (data_norm / np.maximum(geometry_norm, 0.05*data_norm))), Sig, Err
     else:
-        return (0.5 * (data_norm / np.maximum(geometry_norm, 0.005*data_norm)))
+        return (0.5 * (data_norm / np.maximum(geometry_norm, 0.05*data_norm)))
 
 
 def _compute_data_norm(
