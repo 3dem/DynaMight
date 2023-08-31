@@ -30,7 +30,7 @@ from .._cli import cli
 
 
 @cli.command()
-def deformable_backprojection_single(
+def deformable_backprojection(
     output_directory: Path,
     mask_file: Optional[Path] = None,
     refinement_star_file: Optional[Path] = None,
