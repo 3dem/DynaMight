@@ -500,6 +500,8 @@ class Visualizer:
             with mrcfile.new(map_directory / ('map'+str(self.map_nr).zfill(3)+'_half'+str(self.half_set)+'.mrc'), overwrite=True) as mrc:
                 mrc.set_data(V)
                 mrc.voxel_size = self.decoder.ang_pix
+            print('saved a map with the name map' +
+                  str(self.map_nr).zfill(3)+'_half'+str(self.half_set)+'.mrc')
             self.save_movie.null_value
 
 
