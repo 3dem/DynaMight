@@ -60,7 +60,7 @@ def train_epoch(
     )
     denoising_loss = torch.nn.BCELoss()
 
-    for batch_ndx, sample in tqdm(enumerate(dataloader), file = sys.stdout):
+    for batch_ndx, sample in enumerate(tqdm(dataloader, file = sys.stdout)):
 
         encoder_optimizer.zero_grad()
         decoder_optimizer.zero_grad()
