@@ -33,7 +33,8 @@ def explore_latent_space(
     inverse_deformation: Optional[str] = None,
     atomic_model: str = None,
     reduce_by_deformation: bool = False,
-    cluster: bool = False
+    cluster: bool = False,
+    pipeline_control = None,
 ):
     # todo: @schwab implement preload images
 
