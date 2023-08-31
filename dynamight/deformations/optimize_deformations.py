@@ -62,15 +62,15 @@ def optimize_deformations(
     mask_file: Optional[Path] = None,
     checkpoint_file: Optional[Path] = None,
     n_gaussians: int = 20000,
-    n_gaussian_widths: int = 1,
-    n_latent_dimensions: int = 2,
+    n_gaussian_widths: int = 2,
+    n_latent_dimensions: int = 5,
     n_positional_encoding_dimensions: int = 10,
     n_linear_layers: int = 8,
     n_neurons_per_layer: int = 32,
     n_warmup_epochs: int = 10,
     weight_decay: float = 0,
     consensus_update_rate: float = 1,
-    consensus_update_decay: float = 1,
+    consensus_update_decay: float = 0.95,
     consensus_update_pooled_particles: int = 500,
     regularization_factor: float = 0.5,
     apply_bfactor: float = 0,
@@ -78,12 +78,12 @@ def optimize_deformations(
     soft_edge_width: float = 20,
     batch_size: int = 128,
     gpu_id: Optional[int] = 0,
-    n_epochs: int = Option(300),
+    n_epochs: int = Option(600),
     n_threads: int = 4,
     preload_images: bool = True,
     n_workers: int = 4,
     combine_resolution: Optional[float] = 8,
-    pipeline_control = None
+    pipeline_control=None
 ):
     # create directory structure
     deformations_directory = output_directory / 'forward_deformations'
@@ -363,7 +363,7 @@ def optimize_deformations(
     '-----------------------------------------------------------------------------------------------f---------------------'
 
     kld_weight = batch_size / len(particle_dataset)
-    beta = kld_weight**2 * 0.001  # 0.006
+    beta = kld_weight**2 * 0.0001  # 0.006
 
     epoch_t = 0
     if n_warmup_epochs == None:
@@ -441,10 +441,6 @@ def optimize_deformations(
                 decoder_half1.compute_radius_graph()
                 # decoder_half1.combine_graphs()
                 decoder_half2.compute_radius_graph()
-                print('Radius graph for half 1 has',
-                      decoder_half1.radius_graph.shape[1], ' connections')
-                print('Radius graph for half 2 has',
-                      decoder_half2.radius_graph.shape[1], ' connections')
 
                 # decoder_half2.combine_graphs()
                 if mask_file != None and epoch > n_warmup_epochs:
@@ -498,9 +494,6 @@ def optimize_deformations(
                     noise_h1 = torch.ones_like(noise_h1)
                     noise_h2 = torch.ones_like(noise_h2)
 
-                print('Average SNR for decoder 1 is:', torch.mean(snr1).item())
-                print('Average SNR for decoder 2 is:', torch.mean(snr2).item())
-
                 cols_h1 = torch.round(
                     65*snr_e1/torch.max(snr_e1))
                 cols_h2 = torch.round(
@@ -553,9 +546,9 @@ def optimize_deformations(
             dec_half1_optimizer = torch.optim.Adam(dec_half1_params, lr=LR)
             dec_half2_optimizer = torch.optim.Adam(dec_half2_params, lr=LR)
             physical_parameter_optimizer_half1 = torch.optim.Adam(
-                decoder_half1.physical_parameters, lr=0.1*posLR)
+                decoder_half1.physical_parameters, lr=0.5*posLR)
             physical_parameter_optimizer_half2 = torch.optim.Adam(
-                decoder_half2.physical_parameters, lr=0.1*posLR)
+                decoder_half2.physical_parameters, lr=0.5*posLR)
 
             if initialization_mode in (ConsensusInitializationMode.EMPTY,
                                        ConsensusInitializationMode.MAP):
@@ -626,7 +619,7 @@ def optimize_deformations(
                 lambda_regularization_half2 = 0
         else:
             previous = lambda_regularization_half1
-            print('previous regularization parameter for half 1:', previous)
+
             current = calibrate_regularization_parameter(
                 dataset=dataset_half1,
                 data_preprocessor=data_preprocessor,
@@ -647,7 +640,7 @@ def optimize_deformations(
                 (0.9 * previous + 0.1 * current)
 
             previous = lambda_regularization_half2
-            print('previous regularization parameter for half 2:', previous)
+
             current = calibrate_regularization_parameter(
                 dataset=dataset_half2,
                 data_preprocessor=data_preprocessor,
@@ -949,8 +942,6 @@ def optimize_deformations(
 
             if losses_half1['reconstruction_loss'] > (old_loss_half1+old2_loss_half1)/2 and consensus_update_rate_h1 != 0:
                 nosub_ind_h1 += 1
-                print('No consensus updates for ',
-                      nosub_ind_h1, ' epochs on half-set 1')
 
                 if nosub_ind_h1 == 1:
                     consensus_update_rate_h1 *= consensus_update_decay
@@ -959,8 +950,7 @@ def optimize_deformations(
 
             if losses_half2['reconstruction_loss'] > (old_loss_half2+old2_loss_half2)/2 and consensus_update_rate_h2 != 0:
                 nosub_ind_h2 += 1
-                print('No consensus updates for ',
-                      nosub_ind_h2, ' epochs on half-set 2')
+
                 # for g in dec_half2_optimizer.param_groups:
                 #     g['lr'] *= 0.9
                 # print('new learning rate for half 2 is', g['lr'])
@@ -1029,13 +1019,6 @@ def optimize_deformations(
                 data_normalization_mask = (data_normalization_mask /
                                            torch.sum(data_normalization_mask**2))*(box_size**2)
 
-            if initialization_mode in (ConsensusInitializationMode.EMPTY,
-                                       ConsensusInitializationMode.MAP):
-                print('mean distance in graph in Angstrom in half 1:',
-                      decoder_half1.mean_neighbour_distance.item(), ' Angstrom')
-                print('mean distance in graph in Angstrom in half 2:',
-                      decoder_half2.mean_neighbour_distance.item(), ' Angstrom')
-
             displacement_variance_half1 = displacement_statistics_half1[
                 'displacement_variances']
             displacement_variance_half2 = displacement_statistics_half2[
@@ -1083,7 +1066,7 @@ def optimize_deformations(
                 decoder_half2.image_smoother.A, decoder_half2.image_smoother.B,
                 box_size)
             FF = np.concatenate([ff2, ff2b], 1)
-            print('warmup optimization:', decoder_half1.warmup)
+
             ind1 = torch.randint(0, box_size - 1, (1, 1))
             ind2 = torch.randint(0, box_size - 1, (1, 1))
 
@@ -1286,7 +1269,7 @@ def optimize_deformations(
                 summ.add_figure("Data/frc_h2", tensor_plot(frc_half2), epoch)
         epoch_t = time.time() - start_time
 
-        if epoch % 5 == 0 or (final > finalization_epochs):
+        if epoch % 5 == 0 or (final > finalization_epochs) or (epoch == n_epochs-1):
 
             with torch.no_grad():
                 V_h1 = decoder_half1.generate_consensus_volume().cpu()
@@ -1312,8 +1295,8 @@ def optimize_deformations(
                               'indices_half1': half1_indices,
                               'indices_val': val_indices,
                               'refinement_directory': refinement_star_file}
-                if final > finalization_epochs:
-                    checkpoint_file = deformations_directory / 'checkpoints/checkpoint_final.pth'
+                if final > finalization_epochs or epoch == n_epochs-1:
+                    checkpoint_file = checkpoints_directory / 'checkpoint_final.pth'
                     torch.save(checkpoint, checkpoint_file)
                 else:
                     checkpoint_file = checkpoints_directory / f'{epoch:03}.pth'
