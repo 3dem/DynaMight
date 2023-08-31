@@ -245,7 +245,7 @@ def val_epoch(
     #mus = []
     #inds = []
 
-    for batch_ndx, sample in tqdm(enumerate(dataloader)):
+    for batch_ndx, sample in enumerate(dataloader):
         encoder.requires_grad = True
         encoder_optimizer.zero_grad()
 
@@ -369,7 +369,7 @@ def validate_epoch(
     consensus_pairwise_distances = torch.pow(torch.sum((decoder_half1.model_positions[
         decoder_half1.radius_graph[0, :]]-decoder_half1.model_positions[decoder_half1.radius_graph[1, :]])**2), 0.5)
 
-    for batch_ndx, sample in tqdm(enumerate(dataloader)):
+    for batch_ndx, sample in enumerate(dataloader):
 
         encoder_half1_optimizer.zero_grad()
         encoder_half2_optimizer.zero_grad()
