@@ -22,7 +22,7 @@ class GeometricLoss:
         self.outlier_weight = outlier_weight
         self.deformation_regularity_weight = deformation_regularity_weight
         self.deformation_coherence_weight = deformation_coherence_weight
-        print('mode is:', self.mode)
+    
 
     def __call__(
         self,
