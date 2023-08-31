@@ -22,7 +22,7 @@ import numpy as np
 def optimize_inverse_deformations(
     output_directory: Path,
     refinement_star_file: Optional[Path] = None,
-    vae_checkpoint: Optional[Path] = None,
+    checkpoint_file: Optional[Path] = None,
     batch_size: int = Option(100),
     n_epochs: int = Option(50),
     gpu_id: Optional[int] = Option(0),
@@ -43,8 +43,8 @@ def optimize_inverse_deformations(
         raise NotADirectoryError(
             f'{forward_deformations_directory} does not exist. Please run dynamight optimize-deformations or use a checkpoint file')
     device = 'cuda:' + str(gpu_id)
-    if vae_checkpoint is None:
-        vae_checkpoint = forward_deformations_directory / 'checkpoint_final.pth'
+    if checkpoint_file is None:
+        checkpoint_file = forward_deformations_directory / 'checkpoint_final.pth'
 
     checkpoint = torch.load(vae_checkpoint, map_location=device)
 
