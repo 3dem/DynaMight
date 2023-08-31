@@ -30,7 +30,7 @@ from .._cli import cli
 
 
 @cli.command()
-def deformable_backprojection(
+def deformable_backprojection_single(
     output_directory: Path,
     mask_file: Optional[Path] = None,
     refinement_star_file: Optional[Path] = None,
@@ -45,8 +45,7 @@ def deformable_backprojection(
     data_loader_threads: int = Option(8),
     downsample: int = Option(2),
     mask_reconstruction: bool = Option(False),
-    do_deformations: bool = Option(True),
-    pipeline_control = None,
+    do_deformations: bool = Option(True)
 ):
     backprojection_directory = output_directory / 'backprojection'
     backprojection_directory.mkdir(exist_ok=True, parents=True)
