@@ -124,7 +124,7 @@ def optimize_deformations(
         typer.echo(f"Training on GPU {gpu_id}")
 
     device = 'cpu' if gpu_id is None else 'cuda:' + str(gpu_id)
-
+    torch.cuda.empty_cache()
     typer.echo('Initializing the particle dataset')
 
     relion_dataset = RelionDataset(
