@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from tqdm import tqdm
+import sys
 import matplotlib.pyplot as plt
 
 from ..models.constants import ConsensusInitializationMode, RegularizationMode
