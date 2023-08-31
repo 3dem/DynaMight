@@ -147,8 +147,8 @@ def train_epoch(
 
             baseline_parameter_optimizer.step()
 
-        elif epoch < n_warmup_epochs and epoch > 0:
-            physical_parameter_optimizer.step()
+        # elif epoch < n_warmup_epochs and epoch > 0:
+        #   physical_parameter_optimizer.step()
 
         else:
             encoder.requires_grad = True
@@ -794,14 +794,12 @@ def get_edge_weights(
         snr2 = torch.clip(den_corr2/(nom2), min=0)
 
         if torch.min(den_corr1[decoder_half1.radius_graph[0, :]]+den_corr1[decoder_half1.radius_graph[1, :]]) < 0:
-            print(
-                'Negative SNR for points in half1, shift regularization parameters to positive domain')
+
             den_corr1 -= 2*torch.min((den_corr1[decoder_half1.radius_graph[0, :]] +
                                       den_corr1[decoder_half1.radius_graph[1, :]]))
 
         if torch.min(den_corr2[decoder_half2.radius_graph[0, :]]+den_corr2[decoder_half2.radius_graph[1, :]]) < 0:
-            print(
-                'Negative SNR for points in half1, shift regularization parameters to positive domain')
+
             den_corr2 -= 2*torch.min((den_corr2[decoder_half2.radius_graph[0, :]] +
                                       den_corr2[decoder_half2.radius_graph[1, :]]))
 
