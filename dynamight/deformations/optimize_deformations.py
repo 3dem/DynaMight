@@ -708,7 +708,8 @@ def optimize_deformations(
                     decoder_half1.warmup = True
                     decoder_half1.amp.requires_grad = decoder_half2.amp.requires_grad
                     decoder_half1.image_smoother.B.requires_grad = decoder_half2.image_smoother.B.requires_grad
-                except:
+                except Exception as error:
+                    print(error)
                     torch.cuda.empty_cache()
                     batch_size = batch_size//2
                     print(
