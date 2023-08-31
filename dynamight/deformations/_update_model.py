@@ -43,8 +43,7 @@ def update_model_positions(
         new_positions = torch.zeros(
             decoder.model_positions.shape[0], decoder.model_positions.shape[1]).to(device)
 
-    print('Updating model by averaging over', consensus_update_pooled_particles,
-          'particles closest to the current consensus model')
+
     with torch.no_grad():
         for batch_ndx, sample in enumerate(data_loader_sub):
             r, y, ctf, shift = sample["rotation"], sample["image"], \
