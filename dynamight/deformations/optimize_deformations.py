@@ -80,7 +80,7 @@ def optimize_deformations(
     gpu_id: Optional[int] = 0,
     n_epochs: int = Option(600),
     n_threads: int = 4,
-    preload_images: bool = True,
+    preload_images: bool = False,
     n_workers: int = 4,
     combine_resolution: Optional[float] = 8,
     pipeline_control=None
