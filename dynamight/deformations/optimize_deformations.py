@@ -142,8 +142,8 @@ def optimize_deformations(
 
     print('Number of particles:', len(particle_dataset))
 
-    consensus_update_pooled_particles = len(particle_dataset)/200
-
+    consensus_update_pooled_particles = int(len(particle_dataset)/200)
+    print(consensus_update_pooled_particles)
     # initialise poses and pose optimisers
     original_angles = particle_dataset.part_rotation.astype(np.float32)
     original_shifts = -particle_dataset.part_translation.astype(np.float32)
