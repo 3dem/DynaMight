@@ -24,7 +24,7 @@ from torch.utils.tensorboard import SummaryWriter
 from .regularization import calibrate_regularization_parameter
 from ..data.handlers.particle_image_preprocessor import \
     ParticleImagePreprocessor
-from ..data.dataloaders.relion import RelionDataset
+from ..data.dataloaders.relion import RelionDataset, write_relion_job_exit_status
 from ..data.handlers.io_logger import IOLogger
 from ..models.constants import ConsensusInitializationMode, RegularizationMode
 from ..models.decoder import DisplacementDecoder, align_halfs
@@ -96,6 +96,7 @@ def optimize_deformations(
     graphs_directory.mkdir(exist_ok=True, parents=True)
     checkpoints_directory.mkdir(exist_ok=True, parents=True)
 
+    print(pipeline_control)
     add_free_gaussians = 0
 
     # initialise logging
@@ -1321,4 +1322,5 @@ def optimize_deformations(
                     mrc.voxel_size = ang_pix
         if final > 0:
             if final > finalization_epochs:
+                write_relion_job_exit_status(output_directory, 'SUCCESS', pipeline_control)
                 break
