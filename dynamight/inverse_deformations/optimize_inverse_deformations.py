@@ -5,6 +5,7 @@ import torch
 from torch.utils.data import DataLoader
 from typer import Option
 import os
+import sys
 
 from ..data.handlers.particle_image_preprocessor import \
     ParticleImagePreprocessor
@@ -170,7 +171,7 @@ def optimize_inverse_deformations(
     loss_list_half1 = []
     loss_list_half2 = []
 
-    for epoch in tqdm(range(N_inv)):
+    for epoch in tqdm(range(N_inv), file = sys.stdout):
         inv_loss_h1, latent_space, deformed_positions_h1 = optimize_epoch(
             encoder_half1,
             decoder_half1,
