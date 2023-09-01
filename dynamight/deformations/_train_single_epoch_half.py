@@ -590,7 +590,7 @@ def get_edge_weights(
     consensus_pairwise_distances_h2 = torch.pow(torch.sum((decoder_half2.model_positions[
         decoder_half2.radius_graph[0, :]]-decoder_half2.model_positions[decoder_half2.radius_graph[1, :]])**2, -1), 0.5)
     with torch.no_grad():
-        for batch_ndx, sample in tqdm(enumerate(dataloader)):
+        for batch_ndx, sample in enumerate(tqdm(dataloader,file = sys.stdout)):
             r, y, ctf = sample["rotation"], sample["image"], sample["ctf"]
             idx = sample['idx']
             r = angles[idx]
@@ -899,7 +899,7 @@ def get_edge_weights_mask(
     consensus_pairwise_distances_h2 = torch.pow(torch.sum((decoder_half2.unmasked_positions[
         decoder_half2.radius_graph[0, :]]-decoder_half2.unmasked_positions[decoder_half2.radius_graph[1, :]])**2, -1), 0.5)
     with torch.no_grad():
-        for batch_ndx, sample in tqdm(enumerate(dataloader)):
+        for batch_ndx, sample in enumerate(tqdm(dataloader, file = sys.stdout)):
             r, y, ctf = sample["rotation"], sample["image"], sample["ctf"]
             idx = sample['idx']
             r = angles[idx]
