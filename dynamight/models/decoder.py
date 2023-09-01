@@ -5,6 +5,7 @@ import torch.nn
 import torch.nn.functional as F
 from torch import nn as nn
 from tqdm import tqdm
+import sys
 import mrcfile
 from dynamight.models.blocks import LinearBlock
 from dynamight.models.utils import positional_encoding, initialize_points_from_volume
@@ -238,7 +239,7 @@ class DisplacementDecoder(torch.nn.Module):
         # self.image_smoother.B.requires_grad = False
         print(
             'Initializing gaussian positions from reference')
-        for i in tqdm(range(n_epochs)):
+        for i in tqdm(range(n_epochs), file = sys.stdout):
             optimizer.zero_grad()
             V = self.generate_consensus_volume()
             loss = torch.mean((V[0].float()-reference_volume.to(V.device))**2)
