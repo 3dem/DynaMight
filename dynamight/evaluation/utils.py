@@ -4,6 +4,7 @@ from tsnecuda import TSNE
 from sklearn.decomposition import PCA, FastICA
 import torch.nn.functional as F
 from tqdm import tqdm
+import sys
 from ..utils.utils_new import apply_ctf
 import matplotlib.pyplot as plt
 from torch.utils.data import TensorDataset, DataLoader
@@ -61,7 +62,7 @@ def compute_latent_space_and_colors(
 
     feature_vec = []
     with torch.no_grad():
-        for batch_ndx, sample in enumerate(tqdm(dataloader)):
+        for batch_ndx, sample in enumerate(tqdm(dataloader, file = sys.stdout)):
             r, y, ctf = sample["rotation"], sample["image"], sample["ctf"]
             idx = sample['idx']
             r, t = poses(idx)
