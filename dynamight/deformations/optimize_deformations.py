@@ -412,12 +412,12 @@ def optimize_deformations(
     total = 0
     with torch.no_grad():
         print('Computing half-set indices')
-        for batch_ndx, sample in tqdm(enumerate(data_loader_half1)):
+        for batch_ndx, sample in enumerate(tqdm(data_loader_half1, file = sys.stdout)):
             idx = sample['idx']
             half1_indices[total:(total+idx.shape[0])] = idx
             total += idx.shape[0]
         total = 0
-        for batch_ndx, sample in tqdm(enumerate(data_loader_val)):
+        for batch_ndx, sample in enumerate(tqdm(data_loader_val, file = sys.stdout)):
             idx = sample['idx']
             val_indices[total:(total+idx.shape[0])] = idx
             total += idx.shape[0]
@@ -546,9 +546,9 @@ def optimize_deformations(
             dec_half1_optimizer = torch.optim.Adam(dec_half1_params, lr=LR)
             dec_half2_optimizer = torch.optim.Adam(dec_half2_params, lr=LR)
             physical_parameter_optimizer_half1 = torch.optim.Adam(
-                decoder_half1.physical_parameters, lr=0.5*posLR)
+                decoder_half1.physical_parameters, lr=0.1*posLR)
             physical_parameter_optimizer_half2 = torch.optim.Adam(
-                decoder_half2.physical_parameters, lr=0.5*posLR)
+                decoder_half2.physical_parameters, lr=0.1*posLR)
 
             if initialization_mode in (ConsensusInitializationMode.EMPTY,
                                        ConsensusInitializationMode.MAP):
