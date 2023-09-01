@@ -17,6 +17,7 @@ from dynamight.utils.utils_new import compute_threshold, bezier_curve, make_equi
 from matplotlib.path import Path
 import mrcfile
 import os
+import sys
 
 
 class Visualizer:
@@ -382,7 +383,7 @@ class Visualizer:
 
         if self.rep_menu.current_choice == 'volume':
             print('Generating movie with', path.shape[0], 'frames')
-            for i in tqdm(range(path.shape[0] // 2)):
+            for i in tqdm(range(path.shape[0] // 2),file = sys.stdout):
                 mu = path[2*i: (2*i) + 2].float()
                 with torch.no_grad():
                     V = self.decoder.generate_volume(
@@ -900,7 +901,7 @@ class Visualizer_val:
 
         if self.rep_menu.current_choice == 'volume':
             print('Generating movie with', path.shape[0], 'frames')
-            for i in tqdm(range(path.shape[0] // 2)):
+            for i in tqdm(range(path.shape[0] // 2), file = sys.stdout):
                 mu = path[2*i: (2*i) + 2].float()
                 with torch.no_grad():
                     V = self.decoder.generate_volume(
