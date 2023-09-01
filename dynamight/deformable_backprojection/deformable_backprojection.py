@@ -23,6 +23,7 @@ from dynamight.deformable_backprojection.backprojection_utils import \
 from dynamight.data.handlers.particle_image_preprocessor import \
     ParticleImagePreprocessor
 from tqdm import tqdm
+import sys
 from ..data.dataloaders.relion import RelionDataset
 from typer import Option
 import matplotlib.pyplot as plt
@@ -253,7 +254,7 @@ def deformable_backprojection(
         drop_last=True
     )
     nr = 0
-    for batch_ndx, sample in tqdm(enumerate(current_data_loader)):
+    for batch_ndx, sample in enumerate(tqdm(current_data_loader, file = sys.stdout)):
         r, y, ctf = sample["rotation"].to(torch.float16), sample["image"].to(torch.float16), sample[
             "ctf"]
         idx = sample['idx']
@@ -336,7 +337,7 @@ def deformable_backprojection(
         drop_last=True
     )
     nr = 0
-    for batch_ndx, sample in tqdm(enumerate(current_data_loader)):
+    for batch_ndx, sample in enumerate(tqdm(current_data_loader, file = sys.stdout)):
         r, y, ctf = sample["rotation"].to(torch.float16), sample["image"].to(torch.float16), sample[
             "ctf"]
         idx = sample['idx']
