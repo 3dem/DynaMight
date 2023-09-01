@@ -5,7 +5,7 @@ Module for loading RELION particle datasets
 """
 
 import os
-
+import sys
 from glob import glob
 from typing import Optional
 
@@ -13,6 +13,27 @@ import numpy as np
 
 from ..handlers.particle_dataset import ParticleDataset
 from ..handlers.star_file import load_star
+
+
+def is_relion_abort(directory: str) -> bool:
+    return os.path.isfile(os.path.join(directory, "RELION_JOB_ABORT_NOW"))
+
+ 
+
+def write_relion_job_exit_status(
+    directory: str, status: str, pipeline_control: bool = False,
+):
+
+    if pipeline_control:
+        open(os.path.join(directory, f"RELION_JOB_EXIT_{status}"), "a").close()
+    elif status == "FAILURE":
+        sys.exit(1)
+
+def abort_if_relion_abort(directory: str):
+    if is_relion_abort(directory):
+        write_relion_job_exit_status(directory, "ABORTED")
+        print("Aborting now...")
+        sys.exit(1)
 
 
 class RelionDataset:
