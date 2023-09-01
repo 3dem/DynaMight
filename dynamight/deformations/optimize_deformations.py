@@ -1006,7 +1006,7 @@ def optimize_deformations(
                 None,
                 None] ** 2
 
-            if epoch > n_warmup_epochs and epoch < (n_warmup_epochs + 60):
+            if epoch > (n_warmup_epochs+10) and epoch < (n_warmup_epochs + 60):
                 Sig = 0.5*Sig + 0.5*(sig1+sig2)/2
 
                 data_normalization_mask = 1 / \
