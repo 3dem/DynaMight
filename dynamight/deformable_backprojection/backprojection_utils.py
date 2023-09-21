@@ -431,12 +431,12 @@ def backproject_single_image(
                                grid=dis_grid.to(device),
                                mode='bilinear', align_corners=True)
         else:
-            Vy = Vy[:-1, :-1, :-1]
-
+            Vy = Vy[:, :-1, :-1, :-1]
 
         Vy = torch.sum(Vy, 0)
 
         return Vy.float(), CTFy.float()
+
 
 def compute_weight_image(
         z_image: torch.Tensor,
