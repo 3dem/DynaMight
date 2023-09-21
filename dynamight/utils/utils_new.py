@@ -280,7 +280,7 @@ def radial_index_mask(box_size):
 
     x = torch.tensor(
         np.linspace(-box_size, box_size, box_size, endpoint=False))
-    X, Y = torch.meshgrid(x, x, indexing = 'ij')
+    X, Y = torch.meshgrid(x, x, indexing='ij')
     R = torch.round(torch.sqrt(X ** 2 + Y ** 2))
     Mask = R < (x[-1])
 
@@ -294,7 +294,7 @@ def radial_index_mask3(box_size, scale=None):
     else:
         x = torch.tensor(
             np.linspace(-scale*box_size, scale*box_size, box_size, endpoint=False))
-    X, Y, Z = torch.meshgrid(x, x, x,indexing = 'ij')
+    X, Y, Z = torch.meshgrid(x, x, x, indexing='ij')
     R = torch.round(torch.sqrt(X ** 2 + Y ** 2 + Z ** 2))
     Mask = R < (x[-1])
 
@@ -418,7 +418,7 @@ def frc(x, y, ctf, batch_reduce='sum'):
     eps = 1e-8
     ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
 
-    X, Y = torch.meshgrid(ind, ind,indexing = 'ij')
+    X, Y = torch.meshgrid(ind, ind, indexing='ij')
     R = torch.cat(batch_size * [torch.fft.fftshift(torch.round(
         torch.pow(X ** 2 + Y ** 2, 0.5)).long()).unsqueeze(0)], 0).to(device)
 
@@ -565,7 +565,7 @@ def visualize_latent(z, c, s=0.1, alpha=0.5, cmap='jet', method='umap'):
     matplotlib.use(backend)
 
     return fig
-    
+
 
 def write_xyz(
     points: torch.Tensor,
@@ -641,7 +641,7 @@ def graphs2bild(total_points, points, edge_indices, amps, title, box_size, ang_p
 
 def field2bild(points, field, uncertainty, title, box_size, ang_pix):
     f = open(title + '.bild', 'a')
-    color = 18
+    color = 25
     cols = torch.linalg.norm(points - field, dim=1)
     points = points.detach().cpu().numpy()
     points = (points + 0.5) * box_size * ang_pix
@@ -653,14 +653,14 @@ def field2bild(points, field, uncertainty, title, box_size, ang_pix):
     #cols = torch.round(cols / torch.max(cols) * 65).long()
     for k in range(y.shape[0]):
 
-        f.write('%s %.18g\n' % ('.color', color))
+        f.write('%s %.18g %.18g %.18g\n' % ('.color', 0.0, 0.0, 0.0))
         f.write("%s %.18g %.18g %.18g %.18g %.18g %.18g %.18g\n %.18g\n %.18g\n" % (
             '.arrow', y[k, 0], y[k, 1], y[k, 2], y[k, 3], y[k, 4], y[k, 5], 0.5, 1, 0.5))
-    # f.write('%s %.18g\n' % ('.transparency', 0.6))
-    # for k in range(y.shape[0]):
-    #     f.write('%s %.18g\n' % ('.color', cols[k]))
-    #     f.write("%s %.18g %.18g %.18g %.18g\n" % (
-    #         '.sphere', y[k, 3], y[k, 4], y[k, 5], uncertainty[k]))
+    f.write('%s %.18g\n' % ('.transparency', 0.6))
+    for k in range(y.shape[0]):
+        f.write('%s %.18g\n' % ('.color', cols[k]))
+        f.write("%s %.18g %.18g %.18g %.18g\n" % (
+            '.sphere', y[k, 3], y[k, 4], y[k, 5], uncertainty[k]))
 
     f.close()
 
@@ -703,7 +703,7 @@ def power_spec2(F1, batch_reduce=None):
     N = F1.shape[-1]
     ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N).to(device)
     end_ind = torch.round(torch.tensor(N / 2)).long()
-    X, Y = torch.meshgrid(ind, ind, indexing = 'ij')
+    X, Y = torch.meshgrid(ind, ind, indexing='ij')
     R = torch.fft.fftshift(torch.round(torch.pow(X ** 2 + Y ** 2, 0.5)).long())
     p_s = scatter_mean(torch.abs(F1.flatten(start_dim=-2)) ** 2,
                        R.flatten().to(F1.device))
@@ -721,7 +721,7 @@ def radial_avg2(F1, batch_reduce=None):
     N = F1.shape[-1]
     ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
     end_ind = torch.round(torch.tensor(N / 2)).long()
-    X, Y = torch.meshgrid(ind, ind, indexing = 'ij')
+    X, Y = torch.meshgrid(ind, ind, indexing='ij')
     R = torch.fft.fftshift(torch.round(torch.pow(X ** 2 + Y ** 2, 0.5)).long())
     res = torch.arange(start=0, end=end_ind) ** 2,
     p_s = scatter_mean(torch.abs(F1.flatten(start_dim=-2)),
@@ -735,7 +735,7 @@ def radial_avg2(F1, batch_reduce=None):
 def prof2radim(w, out_value=0):
     N = w.shape[0]
     ind = torch.linspace(-N, N - 1, 2 * N)
-    X, Y = torch.meshgrid(ind, ind, indexing = 'ij')
+    X, Y = torch.meshgrid(ind, ind, indexing='ij')
     R = torch.fft.fftshift(torch.round(torch.pow(X ** 2 + Y ** 2, 0.5)).long())
     R[R > N - 1] = N - 1
     W = w[R]
@@ -751,7 +751,7 @@ def RadialAvg(F1, batch_reduce=None):
     N = F1.shape[-1]
     ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
     end_ind = torch.round(torch.tensor(N / 2)).long()
-    X, Y, Z = torch.meshgrid(ind, ind, ind, indexing = 'ij')
+    X, Y, Z = torch.meshgrid(ind, ind, ind, indexing='ij')
     R = torch.fft.fftshift(torch.round(
         torch.pow(X ** 2 + Y ** 2 + Z ** 2, 0.5)).long())
     res = torch.arange(start=0, end=end_ind) ** 2,
@@ -771,7 +771,7 @@ def RadialAvgProfile(F1, batch_reduce=None):
     N = F1.shape[-1]
     ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
     end_ind = torch.round(torch.tensor(N / 2)).long()
-    X, Y, Z = torch.meshgrid(ind, ind, ind, indexing = 'ij')
+    X, Y, Z = torch.meshgrid(ind, ind, ind, indexing='ij')
     R = torch.fft.fftshift(torch.round(
         torch.pow(X ** 2 + Y ** 2 + Z ** 2, 0.5)).long()).to(device)
     res = torch.arange(start=0, end=end_ind) ** 2,
@@ -796,7 +796,7 @@ def fourier_shift_2d(
 
     if torch.is_tensor(grid_ft):
         ls = torch.linspace(-s // 2, s // 2 - 1, s)
-        y, x = torch.meshgrid(ls, ls, indexing = 'ij')
+        y, x = torch.meshgrid(ls, ls, indexing='ij')
         x = x.to(grid_ft.device)
         y = y.to(grid_ft.device)
         dot_prod = 2 * np.pi * \
@@ -835,7 +835,7 @@ def PowerSpec(F1, batch_reduce=None):
     N = F1.shape[-1]
     ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
     end_ind = torch.round(torch.tensor(N / 2)).long()
-    X, Y, Z = torch.meshgrid(ind, ind, ind, indexing = 'ij')
+    X, Y, Z = torch.meshgrid(ind, ind, ind, indexing='ij')
     R = torch.fft.fftshift(torch.round(
         torch.pow(X ** 2 + Y ** 2 + Z ** 2, 0.5)).long())
     res = torch.arange(start=0, end=end_ind) ** 2,
@@ -865,7 +865,7 @@ def FSC(F1, F2, ang_pix=1, visualize=False):
     N = F1.shape[-1]
     ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
     end_ind = torch.round(torch.tensor(N / 2)).long()
-    X, Y, Z = torch.meshgrid(ind, ind, ind,indexing = 'ij')
+    X, Y, Z = torch.meshgrid(ind, ind, ind, indexing='ij')
     R = torch.fft.fftshift(torch.round(
         torch.pow(X ** 2 + Y ** 2 + Z ** 2, 0.5)).long()).to(device)
 
@@ -1347,7 +1347,7 @@ def calculate_grid_oversampling_factor(box_size: int) -> int:
 def generate_data_normalization_mask(box_size, dampening_factor, device):
     """Multiplies with exponential decay"""
     xx = torch.tensor(np.linspace(-1, 1, box_size, endpoint=False))
-    XX, YY = torch.meshgrid(xx, xx,indexing = 'ij')
+    XX, YY = torch.meshgrid(xx, xx, indexing='ij')
     BF = torch.fft.fftshift(
         torch.exp(-(dampening_factor * (XX ** 2 + YY ** 2))), dim=[-1, -2]).to(
         device)
@@ -1381,7 +1381,7 @@ def mask_from_positions(positions, box_size, ang_pix, distance):
         new_ang_pix = ang_pix
         points = (positions*(box_size-1))/ang_pix
     x = (torch.linspace(-0.5, 0.5, new_box)*(box_size-1))/ang_pix
-    grid = torch.meshgrid(x, x, x, indexing = 'ij')
+    grid = torch.meshgrid(x, x, x, indexing='ij')
     grid = torch.stack([grid[0].ravel(), grid[1].ravel(), grid[2].ravel()], 1)
     tree = KDTree(points.detach().cpu().numpy())
     (dists, points) = tree.query(grid.cpu().numpy())
