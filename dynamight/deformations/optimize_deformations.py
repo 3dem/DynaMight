@@ -24,7 +24,7 @@ from torch.utils.tensorboard import SummaryWriter
 from .regularization import calibrate_regularization_parameter
 from ..data.handlers.particle_image_preprocessor import \
     ParticleImagePreprocessor
-from ..data.dataloaders.relion import RelionDataset, write_relion_job_exit_status
+from ..data.dataloaders.relion import RelionDataset, write_relion_job_exit_status, abort_if_relion_abort
 from ..data.handlers.io_logger import IOLogger
 from ..models.constants import ConsensusInitializationMode, RegularizationMode
 from ..models.decoder import DisplacementDecoder, align_halfs
@@ -415,12 +415,12 @@ def optimize_deformations(
     total = 0
     with torch.no_grad():
         print('Computing half-set indices')
-        for batch_ndx, sample in enumerate(tqdm(data_loader_half1, file = sys.stdout)):
+        for batch_ndx, sample in enumerate(data_loader_half1):
             idx = sample['idx']
             half1_indices[total:(total+idx.shape[0])] = idx
             total += idx.shape[0]
         total = 0
-        for batch_ndx, sample in enumerate(tqdm(data_loader_val, file = sys.stdout)):
+        for batch_ndx, sample in enumerate(tqdm(data_loader_val, file=sys.stdout)):
             idx = sample['idx']
             val_indices[total:(total+idx.shape[0])] = idx
             total += idx.shape[0]
@@ -435,6 +435,7 @@ def optimize_deformations(
 
     # the actual training loop
     for epoch in range(n_epochs):
+        abort_if_relion_abort(output_directory)
         # first, recompute the graphs
         with torch.no_grad():
             if initialization_mode in (ConsensusInitializationMode.EMPTY,
@@ -663,6 +664,7 @@ def optimize_deformations(
             lambda_regularization_half2 = regularization_factor_h2 * \
                 (0.9 * previous + 0.1 * current)
 
+        abort_if_relion_abort(output_directory)
         # if epoch-n_warmup_epochs < 20:
         #    print('now regularization starts')
         #    lambda_regularization_half2 = 0
@@ -816,6 +818,8 @@ def optimize_deformations(
         else:
             ref_mask = None
 
+        abort_if_relion_abort(output_directory)
+
         if initialization_mode in (ConsensusInitializationMode.EMPTY, ConsensusInitializationMode.MAP):
             latent_space, losses_half2, displacement_statistics_half2, idix_half2, visualization_data_half2 = train_epoch(
                 encoder_half2,
@@ -867,6 +871,8 @@ def optimize_deformations(
 
         angles_op.step()
         shifts_op.step()
+
+        abort_if_relion_abort(output_directory)
 
         latent_space, idix_half1_useless, sig1, Err1 = val_epoch(
             encoder_half1,
@@ -1322,7 +1328,10 @@ def optimize_deformations(
                     mrc.set_data(
                         (V_h2[0] / torch.mean(V_h2[0])).float().numpy())
                     mrc.voxel_size = ang_pix
+        abort_if_relion_abort(output_directory)
+
         if final > 0:
             if final > finalization_epochs:
-                write_relion_job_exit_status(output_directory, 'SUCCESS', pipeline_control)
+                write_relion_job_exit_status(
+                    output_directory, 'SUCCESS', pipeline_control)
                 break
