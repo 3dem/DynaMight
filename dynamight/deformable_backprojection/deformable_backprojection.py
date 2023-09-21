@@ -24,7 +24,7 @@ from dynamight.data.handlers.particle_image_preprocessor import \
     ParticleImagePreprocessor
 from tqdm import tqdm
 import sys
-from ..data.dataloaders.relion import RelionDataset
+from ..data.dataloaders.relion import RelionDataset, write_relion_job_exit_status, abort_if_relion_abort
 from typer import Option
 import matplotlib.pyplot as plt
 from .._cli import cli
@@ -47,13 +47,13 @@ def deformable_backprojection(
     downsample: int = Option(2),
     mask_reconstruction: bool = Option(False),
     do_deformations: bool = Option(True),
-    pipeline_control = None
+    pipeline_control=None
 ):
     backprojection_directory = output_directory / 'backprojection'
     backprojection_directory.mkdir(exist_ok=True, parents=True)
 
     backprojection_batch_size = batch_size
-    
+
     device = 'cuda:' + str(gpu_id)
     if inverse_deformation_directory is None:
         inverse_deformation_directory = output_directory / 'inverse_deformations'
@@ -228,12 +228,12 @@ def deformable_backprojection(
     V = torch.zeros(box_size, box_size, box_size).to(device)
     i = 0
     gs = torch.linspace(-0.5, 0.5, box_size // downsample)
-    Gs = torch.meshgrid(gs, gs, gs,indexing = 'ij')
+    Gs = torch.meshgrid(gs, gs, gs, indexing='ij')
     smallgrid = torch.stack([Gs[0].ravel(), Gs[1].ravel(), Gs[2].ravel()], 1)
     smallgrid, outsmallgrid = get_ess_grid(
         smallgrid, decoder_half1.model_positions, box_size
     )
-    
+
     smallgrid = smallgrid.to(torch.float16)
     fwd_int = DeformationInterpolator(
         device, smallgrid, smallgrid, box_size, downsample
@@ -254,7 +254,8 @@ def deformable_backprojection(
         drop_last=True
     )
     nr = 0
-    for batch_ndx, sample in enumerate(tqdm(current_data_loader, file = sys.stdout)):
+    for batch_ndx, sample in enumerate(tqdm(current_data_loader, file=sys.stdout)):
+        abort_if_relion_abort(output_directory)
         r, y, ctf = sample["rotation"].to(torch.float16), sample["image"].to(torch.float16), sample[
             "ctf"]
         idx = sample['idx']
@@ -337,7 +338,8 @@ def deformable_backprojection(
         drop_last=True
     )
     nr = 0
-    for batch_ndx, sample in enumerate(tqdm(current_data_loader, file = sys.stdout)):
+    for batch_ndx, sample in enumerate(tqdm(current_data_loader, file=sys.stdout)):
+        abort_if_relion_abort(output_directory)
         r, y, ctf = sample["rotation"].to(torch.float16), sample["image"].to(torch.float16), sample[
             "ctf"]
         idx = sample['idx']
@@ -417,3 +419,6 @@ def deformable_backprojection(
         res[torch.arange(start=0, end=end_ind, step=10)].numpy(), 1)
     )
     plt.savefig(backprojection_directory / 'Fourier-Shell-Correlation.png')
+
+    write_relion_job_exit_status(
+        output_directory, 'SUCCESS', pipeline_control)
