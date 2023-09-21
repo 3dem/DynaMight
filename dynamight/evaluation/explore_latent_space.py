@@ -13,7 +13,7 @@ import starfile
 from .._cli import cli
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
-
+from qtpy.QtWidgets import QApplication
 
 
 @cli.command()
@@ -34,7 +34,7 @@ def explore_latent_space(
     atomic_model: str = None,
     reduce_by_deformation: bool = False,
     cluster: bool = False,
-    pipeline_control = None,
+    pipeline_control=None,
 ):
     # todo: @schwab implement preload images
 
@@ -100,7 +100,6 @@ def explore_latent_space(
         encoder.load_state_dict(cp['encoder_half'+str(half_set)+'_state_dict'])
         decoder.load_state_dict(cp['decoder_half'+str(half_set)+'_state_dict'])
 
-
     poses.load_state_dict(cp['poses_state_dict'])
 
     '''Computing indices for the second half set'''
@@ -114,7 +113,6 @@ def explore_latent_space(
     elif half_set == 0:
         indices = cp['indices_val'].cpu().numpy()
 
-
     if half_set == 0:
         decoder_h1.p2i.device = device
         decoder_h1.projector.device = device
@@ -122,7 +120,6 @@ def explore_latent_space(
         decoder_h1.p2v.device = device
         decoder_h1.device = device
         decoder_h1.to(device)
-
 
         decoder_h2.p2i.device = device
         decoder_h2.projector.device = device
@@ -219,7 +216,6 @@ def explore_latent_space(
         closest_idx = np.argmin(latent_colors['amount'])
         latent_closest = embedded_latent_space[closest_idx]
 
-
     r = torch.zeros([2, 3])
     t = torch.zeros([2, 2])
     if half_set == 0:
@@ -268,7 +264,6 @@ def explore_latent_space(
         latent_colors_h1['difference'] = diff_col.cpu().numpy()
         latent_colors_h2['difference'] = diff_col.cpu().numpy()
 
-
     if cluster == True:
 
         kmeans = KMeans(n_clusters=80).fit(feature_vec.cpu().numpy())
@@ -278,7 +273,6 @@ def explore_latent_space(
         new_star = dataframe.copy()
         new_star['particles'] = dataframe['particles'].loc[list(
             sortinds)]
-
 
         #star_directory = output_directory / 'subsets'
         #star_directory.mkdir(exist_ok=True, parents=True)
