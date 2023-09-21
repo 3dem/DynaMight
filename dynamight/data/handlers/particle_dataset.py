@@ -86,7 +86,8 @@ class ParticleDataset(Dataset):
                 )
             else:
                 ctf = None
-                warnings.warn(f"WARNING: CTF parameters missing for optics group ID: {id}", RuntimeWarning)
+                warnings.warn(
+                    f"WARNING: CTF parameters missing for optics group ID: {id}", RuntimeWarning)
 
             self.optics_group_ctfs.append(ctf)
 
@@ -97,18 +98,23 @@ class ParticleDataset(Dataset):
         return self.optics_group_ctfs
 
     def preload_images(self):
-        self.part_preloaded_image = [None for _ in range(len(self.part_rotation))]
+        self.part_preloaded_image = [
+            None for _ in range(len(self.part_rotation))]
         part_index_list = np.arange(len(self.part_rotation))
-        unique_file_idx, unique_reverse = np.unique(self.part_image_file_path_idx, return_inverse=True)
+        unique_file_idx, unique_reverse = np.unique(
+            self.part_image_file_path_idx, return_inverse=True)
         for i in range(len(unique_file_idx)):
             file_idx = unique_file_idx[i]
             path = self.image_file_paths[file_idx]
             mrc = mrcfile.open(path, 'r')
 
-            this_file_mask = unique_reverse == file_idx  # Mask out particles with no images in this file stack
+            # Mask out particles with no images in this file stack
+            this_file_mask = unique_reverse == file_idx
             this_file_stack_indices = self.part_stack_idx[this_file_mask]
-            this_file_images = mrc.data[this_file_stack_indices]  # Take slices of images for this data set
-            this_file_index_list = part_index_list[this_file_mask]  # Particles indices with images in this file
+            # Take slices of images for this data set
+            this_file_images = mrc.data[this_file_stack_indices]
+            # Particles indices with images in this file
+            this_file_index_list = part_index_list[this_file_mask]
 
             for j in range(len(this_file_images)):
                 idx = this_file_index_list[j]  # This particle index
@@ -122,11 +128,10 @@ class ParticleDataset(Dataset):
         else:
             with mrcfile.mmap(image_filename, 'r') as mrc:
                 stack_idx = self.part_stack_idx[index]
-                if len(mrc.data.shape)>2:
-                    image = mrc.data[stack_idx].copy()         
+                if len(mrc.data.shape) > 2:
+                    image = mrc.data[stack_idx].copy()
                 else:
                     image = mrc.data.copy()
-
 
         return image, image_filename
 
@@ -192,7 +197,8 @@ class ParticleDataset(Dataset):
             raise TypeError("Input is not an 'ParticleDataset' instance.")
 
         if "version" not in state_dict:
-            raise RuntimeError("ParticleDataset instance lacks version information.")
+            raise RuntimeError(
+                "ParticleDataset instance lacks version information.")
 
         if state_dict["version"] == "0.0.1":
             self.initialize(
@@ -208,4 +214,5 @@ class ParticleDataset(Dataset):
                 optics_group_stats=state_dict["optics_group_stats"]
             )
         else:
-            raise RuntimeError(f"Version '{state_dict['version']}' not supported.")
+            raise RuntimeError(
+                f"Version '{state_dict['version']}' not supported.")
