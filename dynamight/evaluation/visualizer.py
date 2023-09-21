@@ -383,7 +383,7 @@ class Visualizer:
 
         if self.rep_menu.current_choice == 'volume':
             print('Generating movie with', path.shape[0], 'frames')
-            for i in tqdm(range(path.shape[0] // 2),file = sys.stdout):
+            for i in tqdm(range(path.shape[0] // 2), file=sys.stdout):
                 mu = path[2*i: (2*i) + 2].float()
                 with torch.no_grad():
                     V = self.decoder.generate_volume(
@@ -855,10 +855,10 @@ class Visualizer_val:
                 err = dnorm ** 2
                 sig = torch.sum(dis_h1[0]*dis_h2[0], -1)
 
-                # field2bild(self.decoder_h1.model_positions[::10].detach().cpu(), pos_h1[0, ::10].detach(
-                # ).cpu(), dnorm, '/cephfs/schwab/defo'+str(self.def_nr).zfill(3), self.decoder_h1.box_size, self.decoder_h1.ang_pix)
-                # points2bild([self.decoder_h1.model_positions[::150]], [torch.ones(
-                #    self.decoder_h1.model_positions[::150].shape[0], 1)], '/cephfs/schwab/points_h1', self.decoder_h1.box_size, self.decoder_h1.ang_pix)
+                field2bild(self.decoder_h1.model_positions[::30].detach().cpu(), pos_h1[0, ::30].detach(
+                ).cpu(), dnorm[::30], '/cephfs/schwab/deformation'+str(self.def_nr).zfill(3), self.decoder_h1.box_size, self.decoder_h1.ang_pix)
+                # points2bild([self.decoder_h1.model_positions[::15]], dnorm,
+                #            '/cephfs/schwab/spheres', self.decoder_h1.box_size, self.decoder_h1.ang_pix)
                 # points2bild([self.decoder_h2.model_positions[::150]], [torch.ones(
                 #    self.decoder_h1.model_positions[::150].shape[0], 1)], '/cephfs/schwab/points_h2', self.decoder_h1.box_size, self.decoder_h1.ang_pix)
                 self.def_nr += 1
@@ -901,7 +901,7 @@ class Visualizer_val:
 
         if self.rep_menu.current_choice == 'volume':
             print('Generating movie with', path.shape[0], 'frames')
-            for i in tqdm(range(path.shape[0] // 2), file = sys.stdout):
+            for i in tqdm(range(path.shape[0] // 2), file=sys.stdout):
                 mu = path[2*i: (2*i) + 2].float()
                 with torch.no_grad():
                     V = self.decoder.generate_volume(
