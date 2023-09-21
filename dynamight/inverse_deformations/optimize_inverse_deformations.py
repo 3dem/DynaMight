@@ -12,7 +12,7 @@ from ..data.handlers.particle_image_preprocessor import \
 from ..models.blocks import LinearBlock
 from ..models.decoder import InverseDisplacementDecoder
 from ..utils.utils_new import initialize_dataset, add_weight_decay_to_named_parameters
-from ..data.dataloaders.relion import RelionDataset
+from ..data.dataloaders.relion import RelionDataset, abort_if_relion_abort, write_relion_job_exit_status
 from ._optimize_single_epoch import optimize_epoch
 from tqdm import tqdm
 from .._cli import cli
@@ -33,7 +33,7 @@ def optimize_inverse_deformations(
     mask_soft_edge_width: int = Option(20),
     data_loader_threads: int = Option(4),
     save_deformations: bool = Option(False),
-    pipeline_control = None
+    pipeline_control=None
 ):
 
     backward_deformations_directory = output_directory / 'inverse_deformations'
@@ -171,7 +171,7 @@ def optimize_inverse_deformations(
     loss_list_half1 = []
     loss_list_half2 = []
 
-    for epoch in tqdm(range(N_inv), file = sys.stdout):
+    for epoch in tqdm(range(N_inv), file=sys.stdout):
         inv_loss_h1, latent_space, deformed_positions_h1 = optimize_epoch(
             encoder_half1,
             decoder_half1,
@@ -201,6 +201,8 @@ def optimize_inverse_deformations(
             save_deformations=save_deformations
         )
 
+        abort_if_relion_abort(output_directory)
+
         if len(loss_list_half1) > 3:
             if torch.mean(torch.tensor(loss_list_half1[-3:])) < inv_loss_h1:
                 learning_rate_h1 = learning_rate_h1/2
@@ -217,12 +219,15 @@ def optimize_inverse_deformations(
 
         loss_list_half1.append(inv_loss_h1)
         loss_list_half2.append(inv_loss_h2)
-
-        print('Inversion loss for half 1 at iteration', epoch, inv_loss_h1)
-        print('Inversion loss for half 2 at iteration', epoch, inv_loss_h2)
+        if epoch % 20 == 0:
+            print('Inversion loss for half 1 at iteration', epoch, inv_loss_h1)
+            print('Inversion loss for half 2 at iteration', epoch, inv_loss_h2)
 
     checkpoint = {'inv_half1': inv_half1, 'inv_half2': inv_half2,
                   'inv_half1_state_dict': inv_half1.state_dict(),
                   'inv_half2_state_dict': inv_half2.state_dict()}
     torch.save(checkpoint, str(output_directory) +
                '/inverse_deformations/inv_chkpt.pth')
+
+    write_relion_job_exit_status(
+        output_directory, 'SUCCESS', pipeline_control)
