@@ -24,7 +24,7 @@ from dynamight.data.handlers.particle_image_preprocessor import \
     ParticleImagePreprocessor
 from tqdm import tqdm
 import sys
-from ..data.dataloaders.relion import RelionDataset, write_relion_job_exit_status, abort_if_relion_abort
+from ..data.dataloaders.relion import RelionDataset, write_relion_job_exit_status, abort_if_relion_abort, is_relion_abort
 from typer import Option
 import matplotlib.pyplot as plt
 from .._cli import cli
@@ -428,5 +428,6 @@ def deformable_backprojection(
         write_relion_job_exit_status(
             output_directory, 'SUCCESS', pipeline_control)
     except:
-        write_relion_job_exit_status(
-            output_directory, 'FAILURE', pipeline_control)
+        if is_relion_abort(output_directory) == False:
+            write_relion_job_exit_status(
+                output_directory, 'FAILURE', pipeline_control)
