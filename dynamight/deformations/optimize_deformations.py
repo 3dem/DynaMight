@@ -83,7 +83,8 @@ def optimize_deformations(
     preload_images: bool = False,
     n_workers: int = 4,
     combine_resolution: Optional[float] = 8,
-    pipeline_control=None
+    pipeline_control=None,
+    use_data_normalization=True,
 ):
 
     try:
@@ -1020,19 +1021,20 @@ def optimize_deformations(
                     None] ** 2
 
                 if epoch > (n_warmup_epochs+10) and epoch < (n_warmup_epochs + 60):
-                    Sig = 0.5*Sig + 0.5*(sig1+sig2)/2
+                    if use_data_normalization == True:
+                        Sig = 0.5*Sig + 0.5*(sig1+sig2)/2
 
-                    data_normalization_mask = 1 / \
-                        Sig
-                    data_normalization_mask /= torch.max(
-                        data_normalization_mask)
-                    R2, r_mask = radial_index_mask(decoder.box_size)
+                        data_normalization_mask = 1 / \
+                            Sig
+                        data_normalization_mask /= torch.max(
+                            data_normalization_mask)
+                        R2, r_mask = radial_index_mask(decoder.box_size)
 
-                    data_normalization_mask *= torch.fft.fftshift(
-                        r_mask.to(decoder.device), dim=[-1, -2])
+                        data_normalization_mask *= torch.fft.fftshift(
+                            r_mask.to(decoder.device), dim=[-1, -2])
 
-                    data_normalization_mask = (data_normalization_mask /
-                                               torch.sum(data_normalization_mask**2))*(box_size**2)
+                        data_normalization_mask = (data_normalization_mask /
+                                                   torch.sum(data_normalization_mask**2))*(box_size**2)
 
                 displacement_variance_half1 = displacement_statistics_half1[
                     'displacement_variances']

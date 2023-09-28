@@ -47,7 +47,8 @@ def deformable_backprojection(
     downsample: int = Option(2),
     mask_reconstruction: bool = Option(False),
     do_deformations: bool = Option(True),
-    pipeline_control=None
+    pipeline_control=None,
+    checkpoint_file=None,
 ):
     try:
         backprojection_directory = output_directory / 'backprojection'
