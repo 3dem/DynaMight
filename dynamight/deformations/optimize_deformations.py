@@ -84,7 +84,7 @@ def optimize_deformations(
     n_workers: int = 4,
     combine_resolution: Optional[float] = 8,
     pipeline_control=None,
-    use_data_normalization=True,
+    use_data_normalization: bool = True,
 ):
 
     try:
@@ -1346,6 +1346,7 @@ def optimize_deformations(
                     write_relion_job_exit_status(
                         output_directory, 'SUCCESS', pipeline_control)
                     break
-    except:
+    except Exception as e:
+        print(e)
         write_relion_job_exit_status(
             output_directory, 'FAILURE', pipeline_control)
