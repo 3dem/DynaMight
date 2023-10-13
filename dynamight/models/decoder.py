@@ -312,6 +312,7 @@ class DisplacementDecoder(torch.nn.Module):
     def mask_model_positions(self):
         unmasked_indices = torch.round(
             (self.model_positions+0.5)*(self.box_size-1)).long().cpu()
+        unmasked_indices = torch.clamp(unmasked_indices, 0, self.box_size-1)
         unmasked_positions = self.model_positions[
             self.mask[unmasked_indices[:, 0], unmasked_indices[:, 1], unmasked_indices[:, 2]] > 0.9]
         print('Number of flexible points:', unmasked_positions.shape[0])
