@@ -62,7 +62,7 @@ def compute_latent_space_and_colors(
 
     feature_vec = []
     with torch.no_grad():
-        for batch_ndx, sample in enumerate(tqdm(dataloader, file = sys.stdout)):
+        for batch_ndx, sample in enumerate(tqdm(dataloader, file=sys.stdout)):
             r, y, ctf = sample["rotation"], sample["image"], sample["ctf"]
             idx = sample['idx']
             r, t = poses(idx)
@@ -140,7 +140,6 @@ def compute_latent_space_and_colors(
 
     cluster_colors = torch.zeros_like(amps)
 
-
     lat_colors = {'amount': color_amount, 'direction': color_direction, 'location': color_position, 'index': indices, 'pose': color_euler_angles,
                   'shift': color_shifts, 'cluster': cluster_colors}
     point_colors = {'activity': mean_deformation, 'amplitude': amps,
@@ -171,7 +170,6 @@ def compute_max_deviation(
             latent_1, latent_2 = latent_1.to(device), latent_2.to(device)
             _, _, dis_h1 = decoder_h1(latent_1, r, t)
             _, _, dis_h2 = decoder_h2(latent_2, r, t)
-
 
             difference = torch.sqrt(torch.sum(
                 ((dis_h1[:]-dis_h2[:])*decoder_h1.box_size/decoder_h1.ang_pix)**2, -1))

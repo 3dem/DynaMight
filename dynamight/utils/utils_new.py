@@ -242,7 +242,7 @@ class FourierImageSmoother(nn.Module):
         # F = torch.exp(-(1/(self.B[:, None, None])**2) *
         #               R**2) * (self.A[:, None, None]**2)
         FF = torch.real(torch.fft.fft2(torch.fft.fftshift(
-            F, dim=[-1, -2]), dim=[-1, -2], norm='ortho'))*(1+self.A[:, None, None]**2)/self.B[:, None, None]
+            F, dim=[-1, -2]), dim=[-1, -2], norm='ortho'))*(0.01+self.A[:, None, None]**2)/self.B[:, None, None]
         bs = ims.shape[0]
         Filts = torch.stack(bs * [FF], 0)
         # Filts = torch.fft.ifftshift(Filts, dim=[-2, -1])
@@ -665,17 +665,16 @@ def field2bild(points, field, uncertainty, title, box_size, ang_pix):
     f.close()
 
 
-def points2bild(points, amps, title, box_size, ang_pix):
+def points2bild(points, amps, title, box_size, ang_pix, color=19):
     f = open(title + '.bild', 'a')
-    color = 19
-    for points, amps in zip(points, amps):
-        points = points.detach().cpu().numpy()
-        points = (points + 0.5) * box_size * ang_pix
-        f.write('%s %.18g\n' % ('.color', color))
-        for k in range(points.shape[0]):
-            f.write("%s %.18g %.18g %.18g %.18g\n" % (
-                '.sphere', points[k, 0], points[k, 1], points[k, 2], 4))  # * amps[k]))
-        color = color + 20
+    points = points.detach().cpu().numpy()
+    points = (points + 0.5) * box_size * ang_pix
+    #f.write('%s %.18g\n' % ('.color', color))
+    for k in range(points.shape[0]):
+        f.write('%s %.18g\n' % ('.color', color[k]))
+        f.write("%s %.18g %.18g %.18g %.18g\n" % (
+            '.sphere', points[k, 0], points[k, 1], points[k, 2], 2))  # * amps[k]))
+    color = color + 20
     f.close()
 
 

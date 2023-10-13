@@ -162,10 +162,10 @@ def deformable_backprojection(
 
         if mask_reconstruction is True:
             rec_mask_h1 = generate_smooth_mask_from_consensus(
-                decoder_half1, box_size, ang_pix, distance=100, soft_edge=5
+                decoder_half1, box_size, ang_pix, distance=20, soft_edge=5
             )
             rec_mask_h2 = generate_smooth_mask_from_consensus(
-                decoder_half2, box_size, ang_pix, distance=100, soft_edge=5
+                decoder_half2, box_size, ang_pix, distance=20, soft_edge=5
             )
         else:
             rec_mask_h1 = torch.ones(box_size, box_size, box_size).to(device)

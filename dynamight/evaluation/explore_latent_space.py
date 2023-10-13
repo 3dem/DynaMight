@@ -266,7 +266,7 @@ def explore_latent_space(
 
     if cluster == True:
 
-        kmeans = KMeans(n_clusters=80).fit(feature_vec.cpu().numpy())
+        kmeans = KMeans(n_clusters=5).fit(feature_vec.cpu().numpy())
         latent_colors['cluster'] = kmeans.labels_
 
         sortinds = np.argsort(kmeans.labels_)

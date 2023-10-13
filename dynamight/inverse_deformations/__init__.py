@@ -1,2 +1,4 @@
 from .optimize_inverse_deformations import optimize_inverse_deformations
 from .optimize_inverse_deformations_single import optimize_inverse_deformations_single
+from .compute_rigid_transforms import compute_rigid_transforms
+from .compute_masks_for_rigid_transforms import compute_masks_for_rigid_transforms
