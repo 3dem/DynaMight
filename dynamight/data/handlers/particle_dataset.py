@@ -112,7 +112,10 @@ class ParticleDataset(Dataset):
             this_file_mask = unique_reverse == file_idx
             this_file_stack_indices = self.part_stack_idx[this_file_mask]
             # Take slices of images for this data set
-            this_file_images = mrc.data[this_file_stack_indices]
+            if len(mrc.data.shape) > 2:
+                this_file_images = mrc.data[this_file_stack_indices]
+            else:
+                this_file_images = np.expand_dims(mrc.data, 0)
             # Particles indices with images in this file
             this_file_index_list = part_index_list[this_file_mask]
 
