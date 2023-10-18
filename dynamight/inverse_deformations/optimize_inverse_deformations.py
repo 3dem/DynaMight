@@ -56,6 +56,7 @@ def optimize_inverse_deformations(
         encoder_half2 = checkpoint['encoder_half2']
         decoder_half1 = checkpoint['decoder_half1']
         decoder_half2 = checkpoint['decoder_half2']
+        batch_size = checkpoint['batch_size']
         poses = checkpoint['poses']
 
         encoder_half1.load_state_dict(checkpoint['encoder_half1_state_dict'])

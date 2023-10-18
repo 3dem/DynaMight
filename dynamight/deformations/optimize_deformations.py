@@ -1314,7 +1314,8 @@ def optimize_deformations(
                                   'dec_half2_optimizer': dec_half2_optimizer.state_dict(),
                                   'indices_half1': half1_indices,
                                   'indices_val': val_indices,
-                                  'refinement_directory': refinement_star_file}
+                                  'refinement_directory': refinement_star_file,
+                                  'batch_size': batch_size}
                     if final > finalization_epochs or epoch == n_epochs-1:
                         checkpoint_file = checkpoints_directory / 'checkpoint_final.pth'
                         torch.save(checkpoint, checkpoint_file)
