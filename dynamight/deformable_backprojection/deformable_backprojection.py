@@ -284,7 +284,7 @@ def deformable_backprojection(
             tot_filter += 1/len(dataset)*Filter.squeeze()
             i += 1
 
-            if i % (len(current_data_loader) // 100) == 0:
+            if i % (len(current_data_loader) // 5) == 0:
 
                 try:
                     VV = V[:, :, :] * rec_mask
@@ -298,7 +298,7 @@ def deformable_backprojection(
                                                        lam_thres * torch.ones_like(
                                                            tot_filter)),
                                     dim=[-1, -2, -3])), dim=[-1, -2, -3])
-                nr += 1
+                nr += 20
                 mrcfile.write(
                     name=backprojection_directory /
                     f'reconstruction_half1_{nr:03}.mrc',
@@ -369,7 +369,7 @@ def deformable_backprojection(
             tot_filter += 1/len(dataset)*Filter.squeeze()
             i += 1
 
-            if i % (len(current_data_loader) // 100) == 0:
+            if i % (len(current_data_loader) // 5) == 0:
 
                 try:
                     VV = V[:, :, :] * rec_mask
@@ -382,7 +382,7 @@ def deformable_backprojection(
                                                        lam_thres * torch.ones_like(
                                                            tot_filter)),
                                     dim=[-1, -2, -3])), dim=[-1, -2, -3])
-                nr += 1
+                nr += 20
                 mrcfile.write(
                     name=backprojection_directory /
                     f'reconstruction_half2_{nr:03}.mrc',

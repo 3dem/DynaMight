@@ -24,7 +24,7 @@ from torch.utils.tensorboard import SummaryWriter
 from .regularization import calibrate_regularization_parameter
 from ..data.handlers.particle_image_preprocessor import \
     ParticleImagePreprocessor
-from ..data.dataloaders.relion import RelionDataset, write_relion_job_exit_status, abort_if_relion_abort
+from ..data.dataloaders.relion import RelionDataset, write_relion_job_exit_status, abort_if_relion_abort, is_relion_abort
 from ..data.handlers.io_logger import IOLogger
 from ..models.constants import ConsensusInitializationMode, RegularizationMode
 from ..models.decoder import DisplacementDecoder, align_halfs
