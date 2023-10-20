@@ -342,8 +342,6 @@ class Visualizer:
         elif self.rep_menu.current_choice == 'points':
             proj, pos, dis = self.decoder.forward(
                 lat.to(self.device), self.r.to(self.device), self.t.to(self.device))
-            # field2bild(self.decoder.model_positions[:].detach().cpu(), pos[0, :].detach().cpu(
-            # ), '/cephfs/schwab/displacements_reg', self.decoder.box_size, self.decoder.ang_pix)
 
             p = torch.cat([self.nap_zeros.unsqueeze(1), (0.5 + pos[0].detach().cpu()) * self.decoder.box_size],
                           1)
@@ -391,11 +389,7 @@ class Visualizer:
                     if self.atomic_model != None:
                         proj, pos, dis = self.decoder.forward(
                             mu.to(self.device), self.r.to(self.device), self.t.to(self.device))
-                        # c_pos = inv_half1([mu.to(device)],pos)
-                        # points2pdb(args.pdb_series,args.out_dir+'/backwardstate'+ str(i).zfill(3)+'.pdb',c_pos[0]*ang_pix*box_size)
-                        # points2pdb(args.pdb_series,args.out_dir+'/forward_state'+ str(i).zfill(3)+'.cif',pos[0]*ang_pix*box_size)
-                    # vols.append((V[0]/torch.max(V[0])).float().cpu())
-                    # vols.append((V[1]/torch.max(V[1])).float().cpu())
+
                     vols.append((V[0]).float().cpu())
                     vols.append((V[1]).float().cpu())
             VV = torch.stack(vols, 0)
@@ -447,10 +441,7 @@ class Visualizer:
         print('created star file with ', len(ninds[0]), 'particles')
         starfile.write(new_star, star_directory /
                        ('subset_' + str(self.star_nr) + '_half' + str(self.half_set) + '.star'))
-        # np.savez(
-        #     star_directory / ('subset_' +
-        #                       str(self.star_nr) + '_indices_' + str(self.half_set) + '.npz'),
-        #     nindsfull)
+
         self.poly.disconnect_events()
         self.poly = PolygonSelector(ax=self.axes1, onselect=self.save_starfile, props=self.line,
                                     useblit=True)
@@ -855,12 +846,6 @@ class Visualizer_val:
                 err = dnorm ** 2
                 sig = torch.sum(dis_h1[0]*dis_h2[0], -1)
 
-                field2bild(self.decoder_h1.model_positions[::30].detach().cpu(), pos_h1[0, ::30].detach(
-                ).cpu(), dnorm[::30], '/cephfs/schwab/deformation'+str(self.def_nr).zfill(3), self.decoder_h1.box_size, self.decoder_h1.ang_pix)
-                # points2bild([self.decoder_h1.model_positions[::15]], dnorm,
-                #            '/cephfs/schwab/spheres', self.decoder_h1.box_size, self.decoder_h1.ang_pix)
-                # points2bild([self.decoder_h2.model_positions[::150]], [torch.ones(
-                #    self.decoder_h1.model_positions[::150].shape[0], 1)], '/cephfs/schwab/points_h2', self.decoder_h1.box_size, self.decoder_h1.ang_pix)
                 self.def_nr += 1
                 dnorm = dnorm/self.max_err
                 nsr = err.cpu().numpy()/sig.cpu().numpy()
@@ -909,11 +894,7 @@ class Visualizer_val:
                     if self.atomic_model != None:
                         proj, pos, dis = self.decoder.forward(
                             mu.to(self.device), self.r.to(self.device), self.t.to(self.device))
-                        # c_pos = inv_half1([mu.to(device)],pos)
-                        # points2pdb(args.pdb_series,args.out_dir+'/backwardstate'+ str(i).zfill(3)+'.pdb',c_pos[0]*ang_pix*box_size)
-                        # points2pdb(args.pdb_series,args.out_dir+'/forward_state'+ str(i).zfill(3)+'.cif',pos[0]*ang_pix*box_size)
-                    # vols.append((V[0]/torch.max(V[0])).float().cpu())
-                    # vols.append((V[1]/torch.max(V[1])).float().cpu())
+
                     vols.append((V[0]).float().cpu())
                     vols.append((V[1]).float().cpu())
             VV = torch.stack(vols, 0)
@@ -966,10 +947,6 @@ class Visualizer_val:
 
         starfile.write(new_star, star_directory /
                        ('subset_' + str(self.star_nr) + '_half' + str(self.half_set) + '.star'))
-        # np.savez(
-        #     star_directory / ('subset_' +
-        #                       str(self.star_nr) + '_indices_' + str(self.half_set) + '.npz'),
-        #     nindsfull)
 
         self.poly.disconnect_events()
         self.poly = PolygonSelector(ax=self.axes1, onselect=self.save_starfile, props=self.line,

@@ -60,9 +60,6 @@ def explore_latent_space(
             pass
         else:
             refinement_star_file = refinement_star_file / 'run_data.star'
-        # refinement_star_file = Path(
-        #    '/cephfs/aburt/dynamight-tests/stan-kmn/data/consensus_360px/particles.star')
-        #refinement_star_file = refinement_star_file / 'run_data.star'
 
     dataframe = starfile.read(refinement_star_file)
     circular_mask_thickness = soft_edge_width
@@ -273,11 +270,6 @@ def explore_latent_space(
         new_star = dataframe.copy()
         new_star['particles'] = dataframe['particles'].loc[list(
             sortinds)]
-
-        #star_directory = output_directory / 'subsets'
-        #star_directory.mkdir(exist_ok=True, parents=True)
-        # starfile.write(new_star, star_directory /
-        #              ('starfile_ordered_half' + str(half_set) + '.star'))
 
     if half_set == 0:
 
