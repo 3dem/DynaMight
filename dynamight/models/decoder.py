@@ -343,8 +343,8 @@ class DisplacementDecoder(torch.nn.Module):
         """Parameters which make up a coordinate model."""
         params = [
             self.image_smoother.A,
-            # self.amp
-            # self.image_smoother.B
+            self.ampvar,
+            self.image_smoother.B
         ]
         return params
 

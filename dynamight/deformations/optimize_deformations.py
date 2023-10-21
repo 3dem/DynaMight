@@ -928,7 +928,7 @@ def optimize_deformations(
                 if consensus_update_rate_h1 != 0:
                     new_pos_h1 = update_model_positions(particle_dataset, data_preprocessor, encoder_half1,
                                                         decoder_half1, shifts, angles,  idix_half1, consensus_update_pooled_particles, batch_size)
-                else:
+                elif epoch % 20 != 0:
                     new_pos_h1 = decoder_half1.model_positions
                 new_pos_h2 = update_model_positions(particle_dataset, data_preprocessor, encoder_half2,
                                                     decoder_half2, shifts, angles, idix_half2, consensus_update_pooled_particles, batch_size)
@@ -958,7 +958,7 @@ def optimize_deformations(
                 if losses_half1['reconstruction_loss'] > (old_loss_half1+old2_loss_half1)/2 and consensus_update_rate_h1 != 0:
                     nosub_ind_h1 += 1
 
-                    if nosub_ind_h1 == 1:
+                    if nosub_ind_h1 > 1:
                         consensus_update_rate_h1 *= consensus_update_decay
                     if consensus_update_rate_h1 < 0.1:
                         consensus_update_rate_h1 = 0
@@ -969,7 +969,7 @@ def optimize_deformations(
                     # for g in dec_half2_optimizer.param_groups:
                     #     g['lr'] *= 0.9
                     # print('new learning rate for half 2 is', g['lr'])
-                    if nosub_ind_h2 == 1:
+                    if nosub_ind_h2 > 1:
                         consensus_update_rate_h2 *= consensus_update_decay
                     if consensus_update_rate_h2 < 0.1:
                         consensus_update_rate_h2 = 0
