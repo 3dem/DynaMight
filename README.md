@@ -10,6 +10,16 @@ Estimating dynamics from cryo-EM images and use them to improve your map (maybe)
 
 Analysing continuous heterogeneity in a cryo-EM dataset with dynamight consists of 3 main steps:
 
+## Installation
+
+*DynaMight* is available from the Python package index ([PyPI](https://pypi.org/)).
+
+Please install using `pip` in a clean virtual environment.
+
+```shell
+pip install dynamight
+```
+
 ## Step 1: Estimation and inspection of deformations
 
 ### Training the VAEs
