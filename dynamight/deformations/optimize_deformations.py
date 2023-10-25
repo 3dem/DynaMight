@@ -78,7 +78,7 @@ def optimize_deformations(
     soft_edge_width: float = 20,
     batch_size: int = 128,
     gpu_id: Optional[int] = 0,
-    n_epochs: int = Option(600),
+    n_epochs: int = Option(150),
     n_threads: int = 4,
     preload_images: bool = False,
     n_workers: int = 4,
@@ -215,6 +215,9 @@ def optimize_deformations(
         print('Initialized data loaders for half sets of size',
               len(dataset_half1), ' and ', len(dataset_half2))
 
+        update_frequency = np.maximum(50000//len(particle_dataset), 1)
+        print('consensus updates are done every ', 100000 //
+              len(particle_dataset), ' epochs.')
         print('box size:', box_size, 'pixel_size:', ang_pix, 'virtual pixel_size:',
               1 / (box_size + 1), ' dimension of latent space: ',
               n_latent_dimensions)
@@ -368,9 +371,10 @@ def optimize_deformations(
         'Start Training'
         '-----------------------------------------------------------------------------------------------f---------------------'
 
-        kld_weight = batch_size / len(particle_dataset)
-        beta = kld_weight**2 * 0.0001  # 0.006
-
+        # kld_weight = batch_size / len(particle_dataset)
+        kld_weight = 1/(box_size**2)
+        # beta = kld_weight**2 * 0.0001  # 0.006
+        beta = kld_weight * 0.1
         epoch_t = 0
         if n_warmup_epochs == None:
             n_warmup_epochs = 0
@@ -394,7 +398,7 @@ def optimize_deformations(
                 distance = 0
                 decoder_half1.image_smoother.B.requires_grad = False
                 decoder_half2.image_smoother.B.requires_grad = False
-                #consensus_model.i2F.B.requires_grad = False
+                # consensus_model.i2F.B.requires_grad = False
             else:  # no atomic model provided
                 decoder_half1.compute_neighbour_graph()
                 decoder_half2.compute_neighbour_graph()
@@ -486,8 +490,8 @@ def optimize_deformations(
                         # edge_weights_h1 = w1_dis  # nsr_g1
                         # edge_weights_h2 = w2_dis  # nsr_g2
 
-                        #edge_weights_dis_h1 = w1_dis
-                        #edge_weights_dis_h2 = w2_dis
+                        # edge_weights_dis_h1 = w1_dis
+                        # edge_weights_dis_h2 = w2_dis
 
                         edge_weights_h1 = torch.ones_like(w1)
                         edge_weights_h2 = torch.ones_like(w2)
@@ -597,8 +601,8 @@ def optimize_deformations(
                 decoder_half1.model_positions.requires_grad = True
                 decoder_half2.model_positions.requires_grad = True
 
-                #decoder_half1.image_smoother.B.requires_grad = False
-                #decoder_half2.image_smoother.B.requires_grad = False
+                # decoder_half1.image_smoother.B.requires_grad = False
+                # decoder_half2.image_smoother.B.requires_grad = False
 
             else:
                 decoder_half1.warmup = False
@@ -607,6 +611,8 @@ def optimize_deformations(
                 decoder_half2.amp.requires_grad = True
                 decoder_half1.image_smoother.B.requires_grad = True
                 decoder_half2.image_smoother.B.requires_grad = True
+                decoder_half1.ampvar.requires_grad = True
+                decoder_half2.ampvar.requires_grad = True
 
                 if initialization_mode in (ConsensusInitializationMode.EMPTY,
                                            ConsensusInitializationMode.MAP):
@@ -722,8 +728,8 @@ def optimize_deformations(
                         batch_size = batch_size//2
                         print(
                             'WARNING! batch size too large for gpu, trying with new batch size of:', batch_size)
-                        kld_weight = batch_size / len(particle_dataset)
-                        beta = kld_weight**2 * 0.01
+                        # kld_weight = batch_size / len(particle_dataset)
+                        # beta = kld_weight**2 * 0.01
 
                         data_loader_half1 = DataLoader(
                             dataset=dataset_half1,
@@ -764,7 +770,7 @@ def optimize_deformations(
                 n_warmup_epochs,
                 data_normalization_mask,
                 latent_space,
-                latent_weight=np.minimum(100, epoch)/100*beta,
+                latent_weight=beta,
                 regularization_parameter=lambda_regularization_half1,
                 consensus_update_pooled_particles=consensus_update_pooled_particles,
                 regularization_mode=regularization_mode_half1,
@@ -777,9 +783,10 @@ def optimize_deformations(
             if epoch > (n_warmup_epochs - 1) and consensus_update_rate != 0:
 
                 if losses_half1['reconstruction_loss'] < (old_loss_half1+old2_loss_half1)/2 and consensus_update_rate_h1 != 0 and (initialization_mode in (ConsensusInitializationMode.EMPTY,
-                                                                                                                                                           ConsensusInitializationMode.MAP)):
+                                                                                                                                                           ConsensusInitializationMode.MAP)) and epoch % update_frequency == 0:
                     decoder_half1.model_positions = torch.nn.Parameter(
                         ref_pos_h1, requires_grad=True)
+                    print('updated consensus model of half 1')
 
                     old2_loss_half1 = old_loss_half1
                     old_loss_half1 = losses_half1['reconstruction_loss']
@@ -840,7 +847,7 @@ def optimize_deformations(
                     n_warmup_epochs,
                     data_normalization_mask,
                     latent_space,
-                    latent_weight=np.minimum(epoch, 100)/100*beta,
+                    latent_weight=beta,
                     regularization_parameter=lambda_regularization_half2,
                     consensus_update_pooled_particles=consensus_update_pooled_particles,
                     regularization_mode=regularization_mode_half2,
@@ -865,7 +872,7 @@ def optimize_deformations(
                     n_warmup_epochs,
                     data_normalization_mask,
                     latent_space,
-                    latent_weight=np.minimum(epoch, 100)/100*beta,
+                    latent_weight=beta,
                     regularization_parameter=lambda_regularization_half2,
                     consensus_update_pooled_particles=consensus_update_pooled_particles,
                     regularization_mode=regularization_mode_half2,
@@ -925,22 +932,23 @@ def optimize_deformations(
             if epoch > (n_warmup_epochs - 1) and (initialization_mode in (ConsensusInitializationMode.EMPTY,
                                                                           ConsensusInitializationMode.MAP)):
 
-                if consensus_update_rate_h1 != 0:
+                if consensus_update_rate_h1 != 0 and epoch % update_frequency == 0:
                     new_pos_h1 = update_model_positions(particle_dataset, data_preprocessor, encoder_half1,
                                                         decoder_half1, shifts, angles,  idix_half1, consensus_update_pooled_particles, batch_size)
                 elif epoch % 20 != 0:
                     new_pos_h1 = decoder_half1.model_positions
+
                 new_pos_h2 = update_model_positions(particle_dataset, data_preprocessor, encoder_half2,
                                                     decoder_half2, shifts, angles, idix_half2, consensus_update_pooled_particles, batch_size)
 
-                if (losses_half2['reconstruction_loss'] < (old_loss_half2+old2_loss_half2)/2 and consensus_update_rate_h2 != 0) or epoch % 20 == 0:
+                if (losses_half2['reconstruction_loss'] < (old_loss_half2+old2_loss_half2)/2 and consensus_update_rate_h2 != 0 and epoch % update_frequency == 0) or epoch % 20 == 0:
                     # decoder_half2.model_positions = torch.nn.Parameter((
                     #    1 - consensus_update_rate_h2) * decoder_half2.model_positions + consensus_update_rate_h2 * new_pos_h2, requires_grad=True)
                     # decoder_half2.model_positions = torch.nn.Parameter(
                     #    new_pos_h2, requires_grad=True)
                     decoder_half2.model_positions = torch.nn.Parameter(
-
                         new_pos_h2, requires_grad=True)
+                    print('updated consensus model of half 2')
 
                     old2_loss_half2 = old_loss_half2
                     old_loss_half2 = losses_half2['reconstruction_loss']
@@ -955,7 +963,7 @@ def optimize_deformations(
                     regularization_factor_h2 = regularization_factor_h2
                     regularization_mode_half2 = RegularizationMode.MODEL
 
-                if losses_half1['reconstruction_loss'] > (old_loss_half1+old2_loss_half1)/2 and consensus_update_rate_h1 != 0:
+                if losses_half1['reconstruction_loss'] > (old_loss_half1+old2_loss_half1)/2 and consensus_update_rate_h1 != 0 and epoch % update_frequency == 0:
                     nosub_ind_h1 += 1
 
                     if nosub_ind_h1 > 1:
@@ -963,7 +971,7 @@ def optimize_deformations(
                     if consensus_update_rate_h1 < 0.1:
                         consensus_update_rate_h1 = 0
 
-                if losses_half2['reconstruction_loss'] > (old_loss_half2+old2_loss_half2)/2 and consensus_update_rate_h2 != 0:
+                if losses_half2['reconstruction_loss'] > (old_loss_half2+old2_loss_half2)/2 and consensus_update_rate_h2 != 0 and epoch % update_frequency == 0:
                     nosub_ind_h2 += 1
 
                     # for g in dec_half2_optimizer.param_groups:
@@ -1275,6 +1283,10 @@ def optimize_deformations(
                             (V_h2[0] / torch.mean(V_h2[0])).float().numpy())
                         mrc.voxel_size = ang_pix
             abort_if_relion_abort(output_directory)
+            if epoch > n_epochs:
+                consensus_update_rate_h1 = 0
+                consensus_update_rate_h2 = 0
+                consensus_update_rate = 0
 
             if final > 0:
                 if final > finalization_epochs:

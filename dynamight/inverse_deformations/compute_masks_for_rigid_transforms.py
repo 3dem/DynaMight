@@ -44,7 +44,8 @@ def compute_masks_for_rigid_transforms(
     data_loader_threads: int = Option(4),
     pipeline_control=None,
     number_of_masks: int = 4,
-    refinement_iterations: int = 2
+    refinement_iterations: int = 2,
+    mask_resolution: float = 20
 ):
 
     masks_directory = output_directory / 'masks'
@@ -159,6 +160,7 @@ def compute_masks_for_rigid_transforms(
         current_labels, decoder_half1.model_positions)
 
     N_iter = refinement_iterations
+    masks = []
 
     for i in range(N_iter):
 
@@ -202,8 +204,36 @@ def compute_masks_for_rigid_transforms(
         expanded_mask = torch.nn.functional.conv3d(
             mask[None, None, :, :, :].to(device).float(), mean_filter.to(device), padding=filter_width//2)
         mask = expanded_mask > 0.3 * torch.max(mean_filter)
+        masks.append(mask[0, 0].movedim(0, 2).movedim(0, 1))
 
         with mrcfile.new(masks_directory / ('mask_body' + str(i+1) + '.mrc'), overwrite=True) as mrc:
             mrc.set_data(mask[0, 0].movedim(
                 0, 2).movedim(0, 1).cpu().float().numpy())
             mrc.voxel_size = decoder_half1.ang_pix
+
+    smooth_masks = []
+
+    for m in masks:
+        fmask = torch.fft.fftn(torch.fft.fftshift(
+            m, dim=[-1, -2, -3]), dim=[-1, -2, -3])
+        x = torch.fft.fftfreq(fmask.shape[-1])
+        X, Y, Z = torch.meshgrid(x, x, x, indexing='ij')
+        F = torch.exp(-(X**2+Y**2+Z**2)/2*mask_resolution **
+                      2).to(decoder_half1.device)
+        plt.imshow(F[125, :, :].cpu())
+        plt.show()
+        s_mask = torch.real(torch.fft.fftshift(torch.fft.ifftn(
+            F*fmask, dim=[-1, -2, -3]), dim=[-1, -2, -3]))
+
+        smooth_masks.append(s_mask)
+
+    total_smooth_mask = torch.zeros_like(smooth_masks[0])
+    for sm in smooth_masks:
+        total_smooth_mask += sm
+    i = 0
+    for sm in smooth_masks:
+        sm[sm > 0.01] /= total_smooth_mask[sm > 0.01]
+        with mrcfile.new(masks_directory / ('smooth_mask_body' + str(i+1) + '.mrc'), overwrite=True) as mrc:
+            mrc.set_data(sm.cpu().float().numpy())
+            mrc.voxel_size = decoder_half1.ang_pix
+        i += 1

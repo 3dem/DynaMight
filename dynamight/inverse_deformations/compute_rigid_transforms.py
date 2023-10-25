@@ -97,14 +97,15 @@ def compute_rigid_transforms(
     for file in sorted(os.listdir(masks_directory)):
 
         try:
-            print('reading in:', file)
-            with mrcfile.open(masks_directory / file) as mrc:
-                mask = torch.tensor(mrc.data).to(device)
-                mask = mask.movedim(0, 2).movedim(0, 1)
-                m_points, inds = maskpoints(
-                    decoder_half1.model_positions, decoder_half1.ampvar, mask, decoder_half1.box_size)
-                print(m_points.shape)
-                masked_points.append(m_points)
+            if file.startswith('mask'):
+                print('reading in:', file)
+                with mrcfile.open(masks_directory / file) as mrc:
+                    mask = torch.tensor(mrc.data).to(device)
+                    mask = mask.movedim(0, 2).movedim(0, 1)
+                    m_points, inds = maskpoints(
+                        decoder_half1.model_positions, decoder_half1.ampvar, mask, decoder_half1.box_size)
+                    print(m_points.shape)
+                    masked_points.append(m_points)
         except:
             print('No masks in this directory')
     print(len(masked_points))
