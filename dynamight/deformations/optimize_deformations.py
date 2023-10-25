@@ -441,7 +441,7 @@ def optimize_deformations(
             cols = torch.arange(len(particle_dataset))/len(particle_dataset)
 
         # the actual training loop
-        for epoch in range(n_epochs):
+        for epoch in range(2*n_epochs):
             abort_if_relion_abort(output_directory)
             # first, recompute the graphs
             with torch.no_grad():
