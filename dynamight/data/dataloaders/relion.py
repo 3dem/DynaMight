@@ -18,16 +18,16 @@ from ..handlers.star_file import load_star
 def is_relion_abort(directory: str) -> bool:
     return os.path.isfile(os.path.join(directory, "RELION_JOB_ABORT_NOW"))
 
- 
 
 def write_relion_job_exit_status(
-    directory: str, status: str, pipeline_control: bool = False,
+    directory: str, status: str, pipeline_control: bool = True,
 ):
 
     if pipeline_control:
         open(os.path.join(directory, f"RELION_JOB_EXIT_{status}"), "a").close()
     elif status == "FAILURE":
         sys.exit(1)
+
 
 def abort_if_relion_abort(directory: str):
     if is_relion_abort(directory):
@@ -82,21 +82,24 @@ class RelionDataset:
             data_star_path = path
             root_search_path = os.path.dirname(os.path.abspath(path))
         else:
-            data_star_path = os.path.abspath(self._find_star_file_in_path(path, "data"))
+            data_star_path = os.path.abspath(
+                self._find_star_file_in_path(path, "data"))
             root_search_path = os.path.abspath(path)
 
         self.data_star_path = os.path.abspath(data_star_path)
         data = load_star(self.data_star_path)
 
         if 'optics' not in data:
-            raise RuntimeError("Optics groups table not found in data star file")
+            raise RuntimeError(
+                "Optics groups table not found in data star file")
         if 'particles' not in data:
             raise RuntimeError("Particles table not found in data star file")
 
         self._load_optics_group(data['optics'])
         self._load_particles(data['particles'])
 
-        self.project_root = self._find_project_root(root_search_path, self.image_file_paths[0])
+        self.project_root = self._find_project_root(
+            root_search_path, self.image_file_paths[0])
 
         # Convert image paths to absolute paths
         for i in range(len(self.image_file_paths)):
@@ -214,7 +217,7 @@ class RelionDataset:
             # CTF parameters -------------------------------------
             if 'rlnDefocusU' in particles and \
                 'rlnDefocusV' in particles and \
-                'rlnDefocusAngle' in particles:
+                    'rlnDefocusAngle' in particles:
                 ctf_u = float(particles['rlnDefocusU'][i])
                 ctf_v = float(particles['rlnDefocusV'][i])
                 ctf_a = float(particles['rlnDefocusAngle'][i])
@@ -225,7 +228,7 @@ class RelionDataset:
             # Rotation parameters --------------------------------
             if 'rlnAngleRot' in particles and \
                 'rlnAngleTilt' in particles and \
-                'rlnAnglePsi' in particles:
+                    'rlnAnglePsi' in particles:
                 a = np.array([
                     float(particles['rlnAngleRot'][i]),
                     float(particles['rlnAngleTilt'][i]),
@@ -242,8 +245,10 @@ class RelionDataset:
 
             # Translation parameters ------------------------------
             if 'rlnOriginXAngst' in particles and 'rlnOriginYAngst' in particles:
-                trans_x = float(particles['rlnOriginXAngst'][i]) / og['pixel_size']
-                trans_y = float(particles['rlnOriginYAngst'][i]) / og['pixel_size']
+                trans_x = float(
+                    particles['rlnOriginXAngst'][i]) / og['pixel_size']
+                trans_y = float(
+                    particles['rlnOriginYAngst'][i]) / og['pixel_size']
             else:
                 trans_x = 0.
                 trans_y = 0.
@@ -259,7 +264,8 @@ class RelionDataset:
                 image_stack_id = 0
                 img_path = img_tokens[1]
             else:
-                raise RuntimeError(f"Invalid image file name (rlnImageName): {img_name}")
+                raise RuntimeError(
+                    f"Invalid image file name (rlnImageName): {img_name}")
 
             self.part_stack_idx.append(image_stack_id)
 
@@ -274,7 +280,8 @@ class RelionDataset:
         self.part_og_idx = np.array(self.part_og_idx)
         self.part_defocus = np.array(self.part_defocus, dtype=np.float32)
         self.part_rotation = np.array(self.part_rotation, dtype=np.float32)
-        self.part_translation = np.array(self.part_translation, dtype=np.float32)
+        self.part_translation = np.array(
+            self.part_translation, dtype=np.float32)
         self.part_noise_group_id = np.array(self.part_noise_group_id)
         self.part_stack_idx = np.array(self.part_stack_idx)
         self.part_image_file_path_idx = np.array(self.part_image_file_path_idx)
@@ -289,7 +296,8 @@ class RelionDataset:
             files = list.sort(files)
             return files[-1]
 
-        raise FileNotFoundError(f"Could not find '{type}' star-file in path: {path}")
+        raise FileNotFoundError(
+            f"Could not find '{type}' star-file in path: {path}")
 
     @staticmethod
     def _find_project_root(from_path: str, file_relative_path: str) -> str:
@@ -306,7 +314,8 @@ class RelionDataset:
             trial_path = os.path.join(current_path, file_relative_path)
             if os.path.isfile(trial_path):
                 return current_path
-            if current_path == os.path.dirname(current_path):  # At filesystem root
+            # At filesystem root
+            if current_path == os.path.dirname(current_path):
                 raise RuntimeError(
                     f"Relion project directory could not be found from the subdirectory: {from_path}")
             current_path = os.path.dirname(current_path)
@@ -318,8 +327,9 @@ class RelionDataset:
 
         if self.particle_diameter is None:
             self.particle_diameter = self.box_size * 1 * pixel_size - \
-                           self.circular_mask_thickness
-            print(f"Assigning a diameter of {round(self.particle_diameter)} angstrom")
+                self.circular_mask_thickness
+            print(
+                f"Assigning a diameter of {round(self.particle_diameter)} angstrom")
         else:
             if self.particle_diameter > max_diameter_ang:
                 print(
