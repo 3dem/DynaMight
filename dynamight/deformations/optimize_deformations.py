@@ -85,6 +85,7 @@ def optimize_deformations(
     combine_resolution: Optional[float] = 8,
     pipeline_control=None,
     use_data_normalization: bool = True,
+    kld_factor: float = 0.01,
 ):
 
     try:
@@ -168,6 +169,9 @@ def optimize_deformations(
                 particle_dataset, inds_half1)
             dataset_half2 = torch.utils.data.Subset(
                 particle_dataset, inds_half2)
+            lambda_regularization_half1 = cp['regularization_parameter_h1']
+            lambda_regularization_half1 = cp['regularization_parameter_h2']
+            n_warmup_epochs = 0
 
         else:
 
@@ -374,7 +378,7 @@ def optimize_deformations(
         # kld_weight = batch_size / len(particle_dataset)
         kld_weight = 1/(box_size**2)
         # beta = kld_weight**2 * 0.0001  # 0.006
-        beta = kld_weight * 0.1
+        beta = kld_weight * kld_factor
         epoch_t = 0
         if n_warmup_epochs == None:
             n_warmup_epochs = 0
@@ -1257,7 +1261,9 @@ def optimize_deformations(
                                   'indices_half1': half1_indices,
                                   'indices_val': val_indices,
                                   'refinement_directory': refinement_star_file,
-                                  'batch_size': batch_size}
+                                  'batch_size': batch_size,
+                                  'regularization_parameter_h1': lambda_regularization_half1,
+                                  'regularization_parameter_h2': lambda_regularization_half2}
                     if final > finalization_epochs or epoch == n_epochs-1:
                         checkpoint_file = checkpoints_directory / 'checkpoint_final.pth'
                         torch.save(checkpoint, checkpoint_file)
