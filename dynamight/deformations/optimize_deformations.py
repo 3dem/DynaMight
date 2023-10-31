@@ -163,15 +163,19 @@ def optimize_deformations(
         if checkpoint_file is not None:  # get subsets from checkpoint if present
             cp = torch.load(checkpoint_file, map_location=device)
             inds_half1 = cp['indices_half1'].cpu().numpy()
+            val_indices = cp['indices_val']
             inds_half2 = list(
                 set(range(len(particle_dataset))) - set(list(inds_half1)))
             dataset_half1 = torch.utils.data.Subset(
                 particle_dataset, inds_half1)
             dataset_half2 = torch.utils.data.Subset(
                 particle_dataset, inds_half2)
+            val_dataset = torch.utils.data.Subset(
+                particle_dataset, val_indices)
             lambda_regularization_half1 = cp['regularization_parameter_h1']
             lambda_regularization_half1 = cp['regularization_parameter_h2']
             n_warmup_epochs = 0
+            print('continuing training from a given checkpoint file')
 
         else:
 
