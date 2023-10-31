@@ -163,9 +163,11 @@ def optimize_deformations(
         if checkpoint_file is not None:  # get subsets from checkpoint if present
             cp = torch.load(checkpoint_file, map_location=device)
             inds_half1 = cp['indices_half1'].cpu().numpy()
-            val_indices = cp['indices_val']
+            val_indices = cp['indices_val'].cpu().numpy()
             inds_half2 = list(
-                set(range(len(particle_dataset))) - set(list(inds_half1)))
+                (set(range(len(particle_dataset))) - set(list(inds_half1))))
+            inds_half2 = list(set(list(inds_half1))-set(list(val_indices)))
+            print(len(inds_half2))
             dataset_half1 = torch.utils.data.Subset(
                 particle_dataset, inds_half1)
             dataset_half2 = torch.utils.data.Subset(
@@ -175,6 +177,8 @@ def optimize_deformations(
             lambda_regularization_half1 = cp['regularization_parameter_h1']
             lambda_regularization_half1 = cp['regularization_parameter_h2']
             n_warmup_epochs = 0
+            half1_indices = inds_half1
+            half2_indices = inds_half2
             print('continuing training from a given checkpoint file')
 
         else:
@@ -425,28 +429,29 @@ def optimize_deformations(
 
         # assign indices to particles for half set division
         tot_latent_dim = encoder_half1.latent_dim
-        half1_indices = torch.zeros(len(dataset_half1))
-        val_indices = torch.zeros(len(val_dataset))
-        total = 0
-        with torch.no_grad():
-            print('Computing half-set indices')
-            for batch_ndx, sample in enumerate(data_loader_half1):
-                idx = sample['idx']
-                half1_indices[total:(total+idx.shape[0])] = idx
-                total += idx.shape[0]
+        if checkpoint_file == None:
+            half1_indices = torch.zeros(len(dataset_half1))
+            val_indices = torch.zeros(len(val_dataset))
             total = 0
-            for batch_ndx, sample in enumerate(tqdm(data_loader_val, file=sys.stdout)):
-                idx = sample['idx']
-                val_indices[total:(total+idx.shape[0])] = idx
-                total += idx.shape[0]
+            with torch.no_grad():
+                print('Computing half-set indices')
+                for batch_ndx, sample in enumerate(data_loader_half1):
+                    idx = sample['idx']
+                    half1_indices[total:(total+idx.shape[0])] = idx
+                    total += idx.shape[0]
+                total = 0
+                for batch_ndx, sample in enumerate(tqdm(data_loader_val, file=sys.stdout)):
+                    idx = sample['idx']
+                    val_indices[total:(total+idx.shape[0])] = idx
+                    total += idx.shape[0]
 
-            half1_indices = half1_indices.long()
-            val_indices = val_indices.long()
+                half1_indices = half1_indices.long()
+                val_indices = val_indices.long()
 
-            cols = torch.ones(len(particle_dataset))
-            cols[half1_indices] = 0
-            cols[val_indices] = 2
-            cols = torch.arange(len(particle_dataset))/len(particle_dataset)
+        cols = torch.ones(len(particle_dataset))
+        cols[half1_indices] = 0
+        cols[val_indices] = 2
+        cols = torch.arange(len(particle_dataset))/len(particle_dataset)
 
         # the actual training loop
         for epoch in range(2*n_epochs):
@@ -1044,10 +1049,10 @@ def optimize_deformations(
                             Sig
                         data_normalization_mask /= torch.max(
                             data_normalization_mask)
-                        R2, r_mask = radial_index_mask(decoder.box_size)
+                        R2, r_mask = radial_index_mask(decoder_half1.box_size)
 
                         data_normalization_mask *= torch.fft.fftshift(
-                            r_mask.to(decoder.device), dim=[-1, -2])
+                            r_mask.to(decoder_half1.device), dim=[-1, -2])
 
                         data_normalization_mask = (data_normalization_mask /
                                                    torch.sum(data_normalization_mask**2))*(box_size**2)
@@ -1262,7 +1267,7 @@ def optimize_deformations(
                                   'cons_optimizer_half2': physical_parameter_optimizer_half2.state_dict(),
                                   'dec_half1_optimizer': dec_half1_optimizer.state_dict(),
                                   'dec_half2_optimizer': dec_half2_optimizer.state_dict(),
-                                  'indices_half1': half1_indices,
+                                  'indices_half1': torch.tensor(half1_indices),
                                   'indices_val': val_indices,
                                   'refinement_directory': refinement_star_file,
                                   'batch_size': batch_size,
