@@ -1,23 +1,18 @@
 # DynaMight
 
-[![License](https://img.shields.io/pypi/l/dynamight.svg?color=green)](https://github.com/schwabjohannes/dynamight/raw/main/LICENSE)
-[![PyPI](https://img.shields.io/pypi/v/dynamight.svg?color=green)](https://pypi.org/project/dynamight)
-[![Python Version](https://img.shields.io/pypi/pyversions/dynamight.svg?color=green)](https://python.org)
-[![CI](https://github.com/schwabjohannes/dynamight/actions/workflows/ci.yml/badge.svg)](https://github.com/schwabjohannes/dynamight/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/schwabjohannes/dynamight/branch/main/graph/badge.svg)](https://codecov.io/gh/schwabjohannes/dynamight)
-
 Estimating dynamics from cryo-EM images and use them to improve your map (maybe)
 
 Analysing continuous heterogeneity in a cryo-EM dataset with dynamight consists of 3 main steps:
 
 ## Installation
 
-*DynaMight* is available from the Python package index ([PyPI](https://pypi.org/)).
+*DynaMight* is not yet available from the Python package index ([PyPI](https://pypi.org/)).
 
-Please install using `pip` in a clean virtual environment.
+Instead, please install the project locally using `pip` in a clean virtual environment.
 
 ```shell
-pip install dynamight
+git clone https://github.com/3dem/DynaMight.git
+pip install --editable DynaMight
 ```
 
 ## Step 1: Estimation and inspection of deformations
