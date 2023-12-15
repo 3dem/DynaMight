@@ -235,5 +235,6 @@ def optimize_inverse_deformations(
 
     except Exception as e:
         print(e)
-        write_relion_job_exit_status(
-            output_directory, 'FAILURE', pipeline_control)
+        if is_relion_abort(output_directory) == False:
+            write_relion_job_exit_status(
+                output_directory, 'FAILURE', pipeline_control)
