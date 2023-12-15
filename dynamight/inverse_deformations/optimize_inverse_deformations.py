@@ -12,7 +12,7 @@ from ..data.handlers.particle_image_preprocessor import \
 from ..models.blocks import LinearBlock
 from ..models.decoder import InverseDisplacementDecoder
 from ..utils.utils_new import initialize_dataset, add_weight_decay_to_named_parameters
-from ..data.dataloaders.relion import RelionDataset, abort_if_relion_abort, write_relion_job_exit_status
+from ..data.dataloaders.relion import RelionDataset, abort_if_relion_abort, write_relion_job_exit_status, is_relion_abort
 from ._optimize_single_epoch import optimize_epoch
 from tqdm import tqdm
 from .._cli import cli
@@ -232,7 +232,8 @@ def optimize_inverse_deformations(
 
         write_relion_job_exit_status(
             output_directory, 'SUCCESS', pipeline_control)
-    except:
-        if is_relion_abort(output_directory) == False:
-            write_relion_job_exit_status(
-                output_directory, 'FAILURE', pipeline_control)
+
+    except Exception as e:
+        print(e)
+        write_relion_job_exit_status(
+            output_directory, 'FAILURE', pipeline_control)
