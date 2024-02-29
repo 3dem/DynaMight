@@ -158,15 +158,7 @@ def optimize_deformations(
         angles_op = torch.optim.Adam([angles], lr=1e-3)
         shifts = torch.nn.Parameter(torch.tensor(
             shifts, requires_grad=True).to(device))
-<<<<<<< HEAD
-<<<<<<< HEAD
         shifts_op = torch.optim.Adam([shifts], lr=1e-3)  # 1e-3)
-=======
-        shifts_op = torch.optim.Adam([shifts], lr=lr_shifts)  # 1e-3)
->>>>>>> 616360b790febf56edf08aef5d4c414058194376
-=======
-        shifts_op = torch.optim.Adam([shifts], lr=1e-3)  # 1e-3)
->>>>>>> 42e2c58d5c0cd22b012f0b5e2dc8d0fb1376beda
 
         # initialise training dataloaders
         if checkpoint_file is not None:  # get subsets from checkpoint if present
@@ -514,11 +506,7 @@ def optimize_deformations(
                     decoder_half2.compute_neighbour_graph()
                     decoder_half1.compute_radius_graph()
                     decoder_half2.compute_radius_graph()
-<<<<<<< HEAD
-                    print('computing noise shit')
-=======
               
->>>>>>> 42e2c58d5c0cd22b012f0b5e2dc8d0fb1376beda
                     if mask_file != None and epoch > n_warmup_epochs:
                         noise_h1, noise_h2, signal_h1, signal_h2, snr1, snr2, w1, w2, snr_dis1, snr_dis2, snr_e1, snr_e2 = get_edge_weights_mask(
                             encoder_half1,
@@ -544,11 +532,7 @@ def optimize_deformations(
                             shifts,
                             data_preprocessor,
                         )
-<<<<<<< HEAD
-                    print('noise shit finished')
-=======
                     
->>>>>>> 42e2c58d5c0cd22b012f0b5e2dc8d0fb1376beda
                     w1 = 1/torch.maximum(snr_e1, torch.tensor(0.05))
                     w2 = 1/torch.maximum(snr_e2, torch.tensor(0.05))
 
