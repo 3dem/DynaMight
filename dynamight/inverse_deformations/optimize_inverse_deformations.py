@@ -12,7 +12,7 @@ from ..data.handlers.particle_image_preprocessor import \
 from ..models.blocks import LinearBlock
 from ..models.decoder import InverseDisplacementDecoder
 from ..utils.utils_new import initialize_dataset, add_weight_decay_to_named_parameters
-from ..data.dataloaders.relion import RelionDataset, abort_if_relion_abort, write_relion_job_exit_status
+from ..data.dataloaders.relion import RelionDataset, abort_if_relion_abort, write_relion_job_exit_status, is_relion_abort
 from ._optimize_single_epoch import optimize_epoch
 from tqdm import tqdm
 from .._cli import cli
@@ -24,7 +24,7 @@ def optimize_inverse_deformations(
     output_directory: Path,
     refinement_star_file: Optional[Path] = None,
     checkpoint_file: Optional[Path] = None,
-    batch_size: int = Option(100),
+    batch_size: int = Option(0),
     n_epochs: int = Option(50),
     gpu_id: Optional[int] = Option(0),
     preload_images: bool = Option(False),
@@ -56,7 +56,10 @@ def optimize_inverse_deformations(
         encoder_half2 = checkpoint['encoder_half2']
         decoder_half1 = checkpoint['decoder_half1']
         decoder_half2 = checkpoint['decoder_half2']
-        batch_size = checkpoint['batch_size']
+        if batch_size == 0:
+            batch_size = checkpoint['batch_size']
+        else:
+            batch_size = batch_size
         poses = checkpoint['poses']
 
         encoder_half1.load_state_dict(checkpoint['encoder_half1_state_dict'])
@@ -148,9 +151,9 @@ def optimize_inverse_deformations(
         inv_half1_params = inv_half1.parameters()
         inv_half2_params = inv_half2.parameters()
         inv_half1_params = add_weight_decay_to_named_parameters(
-            inv_half1, weight_decay=0.001)
+            inv_half1, weight_decay=0.0001)
         inv_half2_params = add_weight_decay_to_named_parameters(
-            inv_half2, weight_decay=0.001)
+            inv_half2, weight_decay=0.0001)
         learning_rate_h1 = 5e-4
         learning_rate_h2 = 5e-4
         inv_half1_optimizer = torch.optim.Adam(
@@ -173,6 +176,7 @@ def optimize_inverse_deformations(
         loss_list_half2 = []
 
         for epoch in tqdm(range(N_inv), file=sys.stdout):
+
             inv_loss_h1, latent_space, deformed_positions_h1 = optimize_epoch(
                 encoder_half1,
                 decoder_half1,
@@ -187,6 +191,7 @@ def optimize_inverse_deformations(
                 deformed_positions_h1,
                 save_deformations=save_deformations
             )
+
             inv_loss_h2, latent_space, deformed_positions_h2 = optimize_epoch(
                 encoder_half2,
                 decoder_half2,
@@ -223,6 +228,11 @@ def optimize_inverse_deformations(
             if epoch % 20 == 0:
                 print('Inversion loss for half 1 at iteration', epoch, inv_loss_h1)
                 print('Inversion loss for half 2 at iteration', epoch, inv_loss_h2)
+                checkpoint = {'inv_half1': inv_half1, 'inv_half2': inv_half2,
+                              'inv_half1_state_dict': inv_half1.state_dict(),
+                              'inv_half2_state_dict': inv_half2.state_dict()}
+                torch.save(checkpoint, str(output_directory) +
+                           '/inverse_deformations/inv_chkpt_' + str(epoch).zfill(3) + '.pth')
 
         checkpoint = {'inv_half1': inv_half1, 'inv_half2': inv_half2,
                       'inv_half1_state_dict': inv_half1.state_dict(),
@@ -232,7 +242,8 @@ def optimize_inverse_deformations(
 
         write_relion_job_exit_status(
             output_directory, 'SUCCESS', pipeline_control)
-    except:
+    except Exception as e:
+        print(e)
         if is_relion_abort(output_directory) == False:
             write_relion_job_exit_status(
                 output_directory, 'FAILURE', pipeline_control)

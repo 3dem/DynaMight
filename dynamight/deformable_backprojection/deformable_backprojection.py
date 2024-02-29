@@ -43,7 +43,7 @@ def deformable_backprojection(
     preload_images: bool = Option(False),
     particle_diameter: Optional[float] = Option(None),
     mask_soft_edge_width: int = Option(20),
-    data_loader_threads: int = Option(8),
+    data_loader_threads: int = Option(4),
     downsample: int = Option(2),
     mask_reconstruction: bool = Option(False),
     do_deformations: bool = Option(True),
@@ -428,7 +428,8 @@ def deformable_backprojection(
 
         write_relion_job_exit_status(
             output_directory, 'SUCCESS', pipeline_control)
-    except:
+    except Exception as e:
+        print(e)
         if is_relion_abort(output_directory) == False:
             write_relion_job_exit_status(
                 output_directory, 'FAILURE', pipeline_control)

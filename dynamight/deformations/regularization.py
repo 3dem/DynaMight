@@ -24,7 +24,8 @@ def calibrate_regularization_parameter(
     edge_weights_dis,
     subset_percentage: float = 10,
     batch_size: int = 100,
-    recompute_data_normalization=False
+    recompute_data_normalization=False,
+    particle_indices=None
 ):
     """Compute a regularisation parameter for the geometry regularisation function.
 
@@ -48,9 +49,12 @@ def calibrate_regularization_parameter(
     # if lambda_regularization == 0:  # Fix for first epoch after warmup
     #    lambda_regularization = 1
 
-    n_particles = round(len(dataset) * (subset_percentage / 100))
-    particle_idx = torch.randint(0, len(dataset), (n_particles,))
-    subset = torch.utils.data.Subset(dataset, particle_idx)
+    if particle_indices == None:
+        n_particles = round(len(dataset) * (subset_percentage / 100))
+        particle_idx = torch.randint(0, len(dataset), (n_particles,))
+        subset = torch.utils.data.Subset(dataset, particle_idx)
+    else:
+        subset = torch.utils.data.Subset(dataset, particle_indices)
     dataloader = DataLoader(
         dataset=subset,
         batch_size=batch_size,
@@ -93,12 +97,13 @@ def calibrate_regularization_parameter(
             data_normalization_mask=data_normalization_mask,
             recompute_data_normalization=recompute_data_normalization,
         )
+    print(data_norm, geometry_norm)
 
     if recompute_data_normalization == True:
 
-        return (0.5 * (data_norm / np.maximum(geometry_norm, 0.05*data_norm))), Sig, Err
+        return (1.0 * (data_norm / np.maximum(geometry_norm, 0.0005*data_norm))), Sig, Err
     else:
-        return (0.5 * (data_norm / np.maximum(geometry_norm, 0.05*data_norm)))
+        return (1.0 * (data_norm / np.maximum(geometry_norm, 0.0005*data_norm)))
 
 
 def _compute_data_norm(
@@ -114,6 +119,7 @@ def _compute_data_norm(
     Sig = torch.zeros(decoder.box_size, decoder.box_size).to(decoder.device)
     Err = torch.zeros_like(Sig)
     count = 1
+    data_norm = 0
     """Compute the data norm part of the loss function calibration."""
     for batch_ndx, sample in enumerate(dataloader):
         # zero gradients
@@ -148,8 +154,7 @@ def _compute_data_norm(
         y = sample["image"].to(decoder.device)
         y = data_preprocessor.apply_circular_mask(y.detach())
         reconstruction_loss = fourier_loss(
-            Proj.squeeze(), y.squeeze(), ctf.float(),
-            W=data_normalization_mask[None, :, :]
+            Proj.squeeze(), y.squeeze(), ctf.float()
         )
 
         # backprop

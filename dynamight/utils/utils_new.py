@@ -219,7 +219,7 @@ class FourierImageSmoother(nn.Module):
         if A == None and B == None:
 
             self.B = torch.nn.Parameter(torch.linspace(
-                self.box_size/60, self.box_size/60, n_classes).to(device),
+                self.box_size/40, self.box_size/40, n_classes).to(device),
                 requires_grad=True)
             self.A = torch.nn.Parameter(torch.linspace(
                 0.1, 0.1, n_classes).to(device), requires_grad=True)
@@ -647,6 +647,7 @@ def field2bild(points, field, uncertainty, title, box_size, ang_pix):
     points = (points + 0.5) * box_size * ang_pix
     uncertainty = uncertainty*box_size*ang_pix
     cols = torch.round((uncertainty/20 * 45)).long()
+    cos = torch.ones_like(cols)
     field = field.detach().cpu().numpy()
     field = (field + 0.5) * box_size * ang_pix
     y = np.concatenate([points, field], 1)
@@ -656,11 +657,11 @@ def field2bild(points, field, uncertainty, title, box_size, ang_pix):
         f.write('%s %.18g %.18g %.18g\n' % ('.color', 0.0, 0.0, 0.0))
         f.write("%s %.18g %.18g %.18g %.18g %.18g %.18g %.18g\n %.18g\n %.18g\n" % (
             '.arrow', y[k, 0], y[k, 1], y[k, 2], y[k, 3], y[k, 4], y[k, 5], 0.5, 1, 0.5))
-    f.write('%s %.18g\n' % ('.transparency', 0.6))
-    for k in range(y.shape[0]):
-        f.write('%s %.18g\n' % ('.color', cols[k]))
-        f.write("%s %.18g %.18g %.18g %.18g\n" % (
-            '.sphere', y[k, 3], y[k, 4], y[k, 5], uncertainty[k]))
+    #f.write('%s %.18g\n' % ('.transparency', 0.6))
+    # for k in range(y.shape[0]):
+    #    f.write('%s %.18g\n' % ('.color', cols[k]))
+    #    f.write("%s %.18g %.18g %.18g %.18g\n" % (
+    #        '.sphere', y[k, 3], y[k, 4], y[k, 5], uncertainty[k]))
 
     f.close()
 

@@ -91,7 +91,7 @@ class Visualizer:
         )
 
         # add widgets to viewer
-        plt.style.use('dark_background')
+        # plt.style.use('dark_background')
         self.latent_closest = latent_closest
         self.fig = Figure(figsize=(5, 5))
         self.lat_canv = FigureCanvas(self.fig)
@@ -222,10 +222,10 @@ class Visualizer:
             self.axes1.clear()
             # axes1.hist2d(zz[:,0],zz[:,1],bins = (100,100), cmap = 'hot')
             self.axes1.imshow(
-                np.rot90(h), interpolation='gaussian', extent=ex, cmap='BuPu')
+                np.rot90(h), interpolation='gaussian', extent=ex, cmap='hot')
             self.axes1.axis('off')
             self.axes1.scatter(
-                self.latent_closest[0], self.latent_closest[1], c='r')
+                self.latent_closest[0], self.latent_closest[1], c='r', marker='x')
             self.lat_canv.draw()
         elif selected_label == 'log-density':
             h, x, y, p = plt.hist2d(
@@ -242,9 +242,11 @@ class Visualizer:
         elif selected_label == 'index':
             self.axes1.clear()
             self.axes1.scatter(
-                self.z[:, 0], self.z[:, 1], c=self.lat_cols['index'])
-            self.axes1.scatter(
-                self.latent_closest[0], self.latent_closest[1], c='r')
+                self.z[:, 0], self.z[:, 1], c=np.round(self.lat_cols['index']/18142), cmap='jet', alpha=0.1)
+            lim = torch.max(np.abs(self.z))
+            #self.axes1.set(xlim=(-lim, lim), ylim=(-lim, lim))
+            # self.axes1.scatter(
+            #    self.latent_closest[0], self.latent_closest[1], c='r', marker='x')
             self.lat_canv.draw()
         elif selected_label == 'pose':
             self.axes1.clear()
@@ -358,6 +360,7 @@ class Visualizer:
             path = torch.tensor(new_points)
         mu = path[0:2].float()
         vols = []
+        positions = []
         poss = []
         ppath = []
         if self.decoder.latent_dim > 2:
@@ -384,6 +387,8 @@ class Visualizer:
             for i in tqdm(range(path.shape[0] // 2), file=sys.stdout):
                 mu = path[2*i: (2*i) + 2].float()
                 with torch.no_grad():
+                    proj, pos, dis = self.decoder.forward(
+                        mu.to(self.device), self.r.to(self.device), self.t.to(self.device))
                     V = self.decoder.generate_volume(
                         mu.to(self.device), self.r.to(self.device), self.t.to(self.device))
                     if self.atomic_model != None:
@@ -392,9 +397,17 @@ class Visualizer:
 
                     vols.append((V[0]).float().cpu())
                     vols.append((V[1]).float().cpu())
+                    positions.append(pos[0])
+                    positions.append(pos[1])
+
             VV = torch.stack(vols, 0)
             VV = VV / torch.max(VV)
             self.vol_layer.data = VV.numpy()
+            endpos = positions[-1]
+            startpos = positions[0]
+            endpos = endpos[::100]
+            startpos = startpos[::100]
+
         if self.rep_menu.current_choice == 'points':
             for i in range(path.shape[0] // 2):
                 mu = path[i: i + 2].float()

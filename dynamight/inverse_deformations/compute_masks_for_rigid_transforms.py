@@ -52,7 +52,7 @@ def compute_masks_for_rigid_transforms(
     masks_directory.mkdir(exist_ok=True, parents=True)
     forward_deformations_directory = output_directory / \
         'forward_deformations' / 'checkpoints'
-    if not forward_deformations_directory.exists():
+    if not forward_deformations_directory.exists() and checkpoint_file is None:
         raise NotADirectoryError(
             f'{forward_deformations_directory} does not exist. Please run dynamight optimize-deformations or use a checkpoint file')
     device = 'cuda:' + str(gpu_id)

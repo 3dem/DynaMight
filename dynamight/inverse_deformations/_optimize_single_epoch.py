@@ -32,6 +32,7 @@ def optimize_epoch(
     for batch_ndx, sample in enumerate(dataloader):
         optimizer.zero_grad()
         if epoch > 0 and add_noise == False and save_deformations == True:
+
             idx = sample['idx']
             c_pos = inverse_model(latent_space[idx].to(device),
                                   deformed_positions[idx].to(device))
@@ -58,8 +59,9 @@ def optimize_epoch(
                     proj, pos, dis = decoder.forward(
                         mu, r.to(device), t.to(device))
                     latent_space[idx] = mu.cpu()
+
                     if save_deformations == True:
-                        deformed_positions[idx] = pos.cpu()
+                        deformed_positions[idx, :, :] = pos.cpu()
             c_pos = inverse_model(mu, pos)
 
         if add_noise == True:

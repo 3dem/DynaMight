@@ -31,6 +31,7 @@ def train_epoch(
     edge_weights,
     edge_weights_dis,
     ref_mask=None,
+    pos_epoch=False,
 ):
 
     device = decoder.device
@@ -60,7 +61,7 @@ def train_epoch(
     )
     denoising_loss = torch.nn.BCELoss()
 
-    for batch_ndx, sample in enumerate(tqdm(dataloader, file = sys.stdout)):
+    for batch_ndx, sample in enumerate(tqdm(dataloader, file=sys.stdout)):
 
         encoder_optimizer.zero_grad()
         decoder_optimizer.zero_grad()
@@ -136,7 +137,7 @@ def train_epoch(
         if epoch < n_warmup_epochs:
             loss = rec_loss
         else:
-            if regularization_parameter > 0:
+            if regularization_parameter > 0 and pos_epoch == False:
                 loss = rec_loss + latent_weight * latent_loss + \
                     regularization_parameter * geo_loss
             else:
@@ -148,8 +149,8 @@ def train_epoch(
 
             baseline_parameter_optimizer.step()
 
-        # elif epoch < n_warmup_epochs and epoch > 0:
-        #   physical_parameter_optimizer.step()
+        elif pos_epoch == True:
+            physical_parameter_optimizer.step()
 
         else:
             encoder.requires_grad = True
@@ -200,6 +201,7 @@ def train_epoch(
                 ref_counts = ref_counts[bottom_ind]
                 idix = torch.cat([idix, idx.cpu()])
                 idix = idix[bottom_ind]
+
             latent_space[sample["idx"].cpu().numpy()] = mu.detach().cpu()
             running_reconstruction_loss += val_loss.item()
             running_latent_loss += latent_loss.item()
@@ -299,7 +301,7 @@ def val_epoch(
                 y, dim=[-1, -2]), dim=[-1, -2], norm='ortho')
             Projf = torch.multiply(Proj, ctf)
             SR, sr = power_spec2(
-                yf-Projf, batch_reduce='mean')
+                (yf-Projf), batch_reduce='mean')
             S2, s2 = power_spec2(y, batch_reduce='mean')
             count += 1
             try:
@@ -590,7 +592,7 @@ def get_edge_weights(
     consensus_pairwise_distances_h2 = torch.pow(torch.sum((decoder_half2.model_positions[
         decoder_half2.radius_graph[0, :]]-decoder_half2.model_positions[decoder_half2.radius_graph[1, :]])**2, -1), 0.5)
     with torch.no_grad():
-        for batch_ndx, sample in enumerate(tqdm(dataloader,file = sys.stdout)):
+        for batch_ndx, sample in enumerate(tqdm(dataloader, file=sys.stdout)):
             r, y, ctf = sample["rotation"], sample["image"], sample["ctf"]
             idx = sample['idx']
             r = angles[idx]
@@ -899,7 +901,7 @@ def get_edge_weights_mask(
     consensus_pairwise_distances_h2 = torch.pow(torch.sum((decoder_half2.unmasked_positions[
         decoder_half2.radius_graph[0, :]]-decoder_half2.unmasked_positions[decoder_half2.radius_graph[1, :]])**2, -1), 0.5)
     with torch.no_grad():
-        for batch_ndx, sample in enumerate(tqdm(dataloader, file = sys.stdout)):
+        for batch_ndx, sample in enumerate(tqdm(dataloader, file=sys.stdout)):
             r, y, ctf = sample["rotation"], sample["image"], sample["ctf"]
             idx = sample['idx']
             r = angles[idx]

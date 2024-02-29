@@ -1,2 +1,3 @@
 from .optimize_deformations import optimize_deformations
 from .optimize_deformations_single import optimize_deformations_single
+from. optimize_deformations_rigid import optimize_deformations_rigid

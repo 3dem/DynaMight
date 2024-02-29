@@ -61,6 +61,7 @@ def compute_latent_space_and_colors(
         decoder.model_positions.shape[0]).to(device)
 
     feature_vec = []
+    rmsd_list = []
     with torch.no_grad():
         for batch_ndx, sample in enumerate(tqdm(dataloader, file=sys.stdout)):
             r, y, ctf = sample["rotation"], sample["image"], sample["ctf"]
@@ -84,6 +85,9 @@ def compute_latent_space_and_colors(
             if reduce_by_deformation is True:
                 feature_vec.append(
                     displacements[:, ::4, :].flatten(start_dim=1))
+            print(displacements.shape)
+            rmsd = torch.sqrt((1/displacements.shape[1])*torch.sum(torch.linalg.vector_norm(displacements*decoder.box_size *decoder.ang_pix, dim = -1)**2,-1))
+            rmsd_list.append(rmsd)
             displacement_norm = torch.linalg.vector_norm(displacements, dim=-1)
             mean_displacement_norm = torch.mean(displacement_norm, 0)
             global_distances += mean_displacement_norm
@@ -111,7 +115,9 @@ def compute_latent_space_and_colors(
 
     if reduce_by_deformation is True:
         feature_vec = torch.cat(feature_vec, 0)
-
+    
+    print('mean rmsd is', torch.mean(torch.cat(rmsd_list,0)))
+    print('max rmsd is', torch.max(torch.cat(rmsd_list,0)))
     color_direction = torch.movedim(color_direction, 0, 1)
     color_direction = F.normalize(color_direction, dim=1)
     color_direction = (color_direction + 1)/2
@@ -134,15 +140,18 @@ def compute_latent_space_and_colors(
 
     amps = decoder.amp.detach().cpu()
     amps = amps[0]
+    print(torch.min(amps), torch.max(amps))
     amps -= torch.min(amps)
     amps /= torch.max(amps)
     widths = torch.nn.functional.softmax(decoder.ampvar, 0)[0].detach().cpu()
 
     cluster_colors = torch.zeros_like(amps)
+    #print(amps.shape, np.min(amps), np.max(amps))
+    #print(widths.shape, np.min(widths), np.max(widths))
 
     lat_colors = {'amount': color_amount, 'direction': color_direction, 'location': color_position, 'index': indices, 'pose': color_euler_angles,
                   'shift': color_shifts, 'cluster': cluster_colors}
-    point_colors = {'activity': mean_deformation, 'amplitude': amps,
+    point_colors = {'activity': mean_deformation, 'amplitude': amps.numpy(),
                     'width': widths, 'position': consensus_color}
 
     return z, lat_colors, point_colors, feature_vec
@@ -179,8 +188,8 @@ def compute_max_deviation(
                 global_max = max_diff
 
     diff_col = torch.cat(diff_col, 0)
-    np.savetxt('/cephfs/schwab/differences_wrong_new.txt',
-               diff_col.cpu().numpy(), fmt='%.8f')
+    # np.savetxt('/cephfs/schwab/differences_wrong_new.txt',
+    #           diff_col.cpu().numpy(), fmt='%.8f')
 
     diff_col /= torch.max(diff_col)
     return global_max, diff_col
