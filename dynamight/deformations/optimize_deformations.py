@@ -1230,8 +1230,12 @@ def optimize_deformations(
 
                 x = visualization_data_half1['projection_image'][0]
                 yd = visualization_data_half1['target_image'][0]
+                decoder_half1.vol_box = gpu_box
+                decoder_half2.vol_box = gpu_box
                 V_h1 = decoder_half1.generate_consensus_volume()
                 V_h2 = decoder_half2.generate_consensus_volume()
+                decoder_half1.vol_box = decoder_half1.box_size
+                decoder_half2.vol_box = decoder_half2.box_size
                 fourier_shell_correlation, res = FSC(
                     V_h1[0].float(), V_h2[0].float(), ang_pix)
 
