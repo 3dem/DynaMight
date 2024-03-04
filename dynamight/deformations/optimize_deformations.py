@@ -749,7 +749,7 @@ def optimize_deformations(
             # training starts!
 
             if epoch == 0:
-                fits = True
+                fits = False
                 while fits == False:
                     try:
                         decoder_half1.warmup = False
