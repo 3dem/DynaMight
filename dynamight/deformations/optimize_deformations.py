@@ -63,7 +63,7 @@ def optimize_deformations(
     checkpoint_file: Optional[Path] = None,
     n_gaussians: int = 30000,
     n_gaussian_widths: int = 1,
-    n_latent_dimensions: int = 5,
+    n_latent_dimensions: int = 6,
     n_positional_encoding_dimensions: int = 10,
     n_linear_layers: int = 8,
     n_neurons_per_layer: int = 32,
