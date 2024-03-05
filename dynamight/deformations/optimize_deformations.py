@@ -351,6 +351,7 @@ def optimize_deformations(
                         fits = True
                         print('consensus gaussian models initialized')
                         torch.cuda.empty_cache()
+                        gpu_box = decoder_half1.vol_box
                     except Exception as error:
                         torch.cuda.empty_cache()
                         print(
@@ -360,7 +361,7 @@ def optimize_deformations(
                         Ivol = Ivol[0, 0]
                         decoder_half1.vol_box = decoder_half1.vol_box//2
                         decoder_half2.vol_box = decoder_half2.vol_box//2
-                        gpu_box = decoder_half1.vol_box
+                        
             decoder_half1.vol_box = decoder_half1.box_size
             decoder_half2.vol_box = decoder_half2.box_size
             if mask_file:
