@@ -34,6 +34,14 @@ There are many more parameters that define the neural network that in normal use
 
 It is also possible to follow the training process by looking at the tensorboard that is updated after every epoch.
 
+### Training the VAE with a rigid body prior
+
+A modified version of Dynamight estimates rigid deformations for user defined bodies. In this version, the Encoder is exactly the same, whereas the decoder predicts a rotation and translation for each body that is specified by binary masks (--deformation-masks). For a given latent representation $z$ and $N$ masks $\{m_1,\ldots, m_N\}$ is of the form 
+
+$$ D_z(x) = \sum_{i=1}^N \sum_{j=1}^{N_i} \varphi_j(R_{i,z}(x)),$$
+
+where $N_i$ is the number of Gaussians within mask $m_i$ and $R_{i,z}§ is the rigid transform that is estimated for mask $m_i$ from the latent representation $z$. 
+
 
 ### Visualization 
 
