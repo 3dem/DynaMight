@@ -24,6 +24,7 @@ from ..data.dataloaders.relion import RelionDataset
 from scipy.special import comb
 from sklearn.neighbors import kneighbors_graph, radius_neighbors_graph
 from scipy.spatial import KDTree
+import os
 
 '-----------------------------------------------------------------------------'
 'CTF and Loss Functions'
@@ -1434,18 +1435,12 @@ def write_reconstruction_script(output_directory, refinement_star_file, checkpoi
     f = open(reconstruction_directory/"reconstruct.sh", "w")
     f.write("#!/bin/bash -l\n")
     f.write("\n")
-    f.write("source /lmb/home/schwab/miniconda3/bin/activate dynamight\n")
+    f.write("source /lmb/home/schwab/miniconda3/bin/activate relion-5.0\n")
     f.write("\n")
     f.write("dynamight compute-rigid-transforms " + str(output_directory) + " --refinement-star-file " + str(refinement_star_file) +
             " --checkpoint-file " + str(checkpoint_file) + " --gpu-id " + str(gpu_id) + " --rigid\n")
     f.write("\n")
-    f.write("source /public/gcc/gcc10_2_0.sh\n")
-    f.write("source /public/compilers/intel-2021.3/setvars.sh\n")
-    f.write("export OMPI_CC=icc\n")
-    f.write("export OMPI_CXX=icpc\n")
     f.write("export PATH=/public/EM/OpenMPI/openmpi-4.0.1/build/bin:$PATH\n")
-    f.write("export LANG=en_US.utf8\n")
-    f.write("export LC_ALL=en_US.utf8\n")
     f.write("export PATH=/public/EM/RELION/relion-4.0-dev/build-cpu/bin:$PATH\n")
     f.write("\n")
     starfile_directory = output_directory/"body_starfiles"
@@ -1457,3 +1452,48 @@ def write_reconstruction_script(output_directory, refinement_star_file, checkpoi
 
     f.close()
     os.chmod(reconstruction_directory/"reconstruct.sh", 0o744)
+
+def combine_maps(reconstruction_directory, mask_list, n_bodies, box_size, ang_pix):
+    map_half1 = torch.zeros(box_size, box_size, box_size)
+    map_half2 = torch.zeros(box_size, box_size, box_size)
+    for i in range(n_bodies):
+        with mrcfile.open(reconstruction_directory/("body_"+str(i+1)+"_half1.mrc")) as mrc:
+            h1_inter = torch.tensor(mrc.data)
+        with mrcfile.open(reconstruction_directory/("body_"+str(i+1)+"_half2.mrc")) as mrc:
+            h2_inter = torch.tensor(mrc.data)
+
+        map_half1 += mask_list[i].movedim(0, 2).movedim(0, 1)*h1_inter
+        map_half2 += mask_list[i].movedim(0, 2).movedim(0, 1)*h2_inter
+    with mrcfile.new(reconstruction_directory / "map_half1.mrc", overwrite=True) as mrc:
+        mrc.set_data(map_half1.cpu().numpy())
+        mrc.voxel_size = ang_pix
+    with mrcfile.new(reconstruction_directory/"map_half2.mrc", overwrite=True) as mrc:
+        mrc.set_data(map_half2.cpu().numpy())
+        mrc.voxel_size = ang_pix
+    fsc, res = FSC(map_half1,map_half2)
+    print(fsc.shape)
+    fsc_filter = torch.zeros_like(map_half1)
+    N = fsc_filter.shape[-1]
+    ind = torch.linspace(-(N - 1) / 2, (N - 1) / 2 - 1, N)
+    end_ind = torch.round(torch.tensor(N / 2)).long()
+    X, Y, Z = torch.meshgrid(ind, ind, ind, indexing='ij')
+    R = torch.fft.fftshift(torch.round(
+        torch.pow(X ** 2 + Y ** 2 + Z ** 2, 0.5)).long()).to(map_half1.device)
+    index_mask = torch.ones_like(map_half1)
+    index_mask[R>(fsc.shape[0]-1)] = 0	
+    fsc_filter = fsc[torch.clamp(R, max = (fsc.shape[0]-1))]
+    fsc_filter *= index_mask
+    F_map_h1 = torch.fft.fftn(map_half1,dim = [-1,-2,-3])
+    F_map_h2 = torch.fft.fftn(map_half2,dim =[-1,-2,-3])
+    filtered_map_half1 = torch.real(torch.fft.ifftn(F_map_h1*fsc_filter, dim = [-1,-2,-3]))
+    filtered_map_half2 = torch.real(torch.fft.ifftn(F_map_h2*fsc_filter, dim = [-1,-2,-3]))
+    with mrcfile.new(reconstruction_directory / "map_half1_filtered.mrc", overwrite=True) as mrc:
+        mrc.set_data(filtered_map_half1.cpu().numpy())
+        mrc.voxel_size = ang_pix
+    with mrcfile.new(reconstruction_directory/"map_half2_filtered.mrc", overwrite=True) as mrc:
+        mrc.set_data(filtered_map_half2.cpu().numpy())
+        mrc.voxel_size = ang_pix
+
+
+    
+    return filtered_map_half1, filtered_map_half2
