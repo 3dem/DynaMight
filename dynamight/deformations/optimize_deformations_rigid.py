@@ -1374,7 +1374,7 @@ def optimize_deformations_rigid(
                         pass
             epoch_t = time.time() - start_time
 
-            if epoch % 1 == 0 or (final > finalization_epochs) or (epoch == n_epochs-1):
+            if epoch % 5 == 0 or (final > finalization_epochs) or (epoch == n_epochs-1):
 
                 with torch.no_grad():
                     V_h1 = decoder_half1.generate_consensus_volume().cpu()
@@ -1410,7 +1410,7 @@ def optimize_deformations_rigid(
                         checkpoint_file = checkpoints_directory / \
                             f'{epoch:03}.pth'
                         torch.save(checkpoint, checkpoint_file)
-                    if epoch % 1 == 0 and epoch > 0:
+                    if epoch % 10 == 0 and epoch > 0:
                         write_reconstruction_script(
                             output_directory, refinement_star_file, checkpoint_file, gpu_id, decoder_half1.n_bodies)
                         subprocess.call(output_directory /
