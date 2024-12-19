@@ -32,6 +32,7 @@ def train_epoch(
     edge_weights_dis,
     ref_mask=None,
     pos_epoch=False,
+    add_corr = None,
 ):
 
     device = decoder.device
@@ -60,6 +61,7 @@ def train_epoch(
 
     )
     denoising_loss = torch.nn.BCELoss()
+    print('type is ',type(decoder).__name__=='DisplacementDecoderRigid')
 
     for batch_ndx, sample in enumerate(tqdm(dataloader, file=sys.stdout)):
 
@@ -220,8 +222,11 @@ def train_epoch(
     # ,'denoised_image': denois1}
     displacement_statistics = {'mean_displacements': mean_dist,
                                'displacement_variances': displacement_variance}
-
-    return latent_space, losses, displacement_statistics, idix, visualization_data
+    
+    if type(decoder).__name__=='DisplacementDecoderRigid':
+        return latent_space, losses, displacement_statistics, idix, visualization_data, add_corr
+    else:
+        return latent_space, losses, displacement_statistics, idix, visualization_data
 
 
 def val_epoch(
@@ -238,6 +243,7 @@ def val_epoch(
     latent_space,
     latent_weight,
     consensus_update_pooled_particles,
+    add_corr = None,
 ):
 
     device = decoder.device
@@ -336,7 +342,10 @@ def val_epoch(
     # plt.subplot(122)
     # plt.scatter(latent_space[inds, 0], latent_space[inds, 1], alpha=0.1)
     # plt.show()
-    return latent_space, idix, Sig/count, Err/count
+    if type(decoder).__name__=='DisplacementDecoderRigid':
+        return latent_space, idix, Sig/count, Err/count, yf
+    else:
+        return latent_space, idix, Sig/count, Err/count
 
 
 def validate_epoch(
