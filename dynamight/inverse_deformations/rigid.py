@@ -51,6 +51,7 @@ def get_rotation_translation(
     data_preprocessor,
     masked_points,
     star_file_data,
+    body,
     half,
 ):
 
@@ -73,11 +74,22 @@ def get_rotation_translation(
 
             for points in masked_points:
 
-                proj, pos, dis = decoder.forward(
-                    mu, r.to(device), t.to(device), points.to(device))
+                # proj, pos, dis = decoder.forward(
+                #    mu, r.to(device), t.to(device), points.to(device))
 
-                proj_all, pos_all, dis_all = decoder.forward(
-                    mu, r.to(device), t.to(device))
+                # proj_all, pos_all, dis_all = decoder.forward(
+                #    mu, r.to(device), t.to(device))
+                if body != None:
+                    proj, pos, dis = decoder.forward(
+                        mu, r.to(device), t.to(device))
+                    pos = pos[:, decoder.masked_indices[body]]
+                    dis = dis[:, decoder.masked_indices[body]]
+                    points = decoder.model_positions[decoder.masked_indices[body]]
+
+                else:
+                    proj, pos, dis = decoder.forward(
+                        mu, r.to(device), t.to(device), points.to(device))
+
                 B = pos.movedim(1, 2)
                 A = points
 
