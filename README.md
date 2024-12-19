@@ -45,7 +45,7 @@ This modified version can be run from the command line using
 
 **dynamight optimize-deformations-rigid run_data.star /dataset/output --initial-model map.mrc --deformations-masks mask_folder**
 
-where mask_folder contains the binary masks used for splitting up the Gaussians. In the rigid version DynaMight writes out new starfiles for each body during training and uses relion_reconstruct to obtain new reference maps. For this a bash script is written and then called from python. You have to make sure that the paths to the RELION executable in this script are correct. The function writing this bash script is located in dynamight/utils/utils_new and is called *write_reconstruction_script*. 
+where mask_folder contains the binary masks used for splitting up the Gaussians. In the rigid version DynaMight writes out new starfiles for each body during training and uses relion_reconstruct to obtain new reference maps. For this a bash script is written and then called from python. You have to make sure that the paths to the RELION executable in this script are correct. The function writing this bash script is located in dynamight/utils/utils_new and is called *write_reconstruction_script()*. 
 
 ### Visualization 
 
