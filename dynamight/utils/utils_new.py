@@ -1435,13 +1435,15 @@ def write_reconstruction_script(output_directory, refinement_star_file, checkpoi
     f = open(reconstruction_directory/"reconstruct.sh", "w")
     f.write("#!/bin/bash -l\n")
     f.write("\n")
+    # ACTIVATE YOUR relion-5.0 CONDA ENVIRONMENT
     f.write("source /lmb/home/schwab/miniconda3/bin/activate relion-5.0\n")
     f.write("\n")
-    f.write("dynamight compute-rigid-transforms " + str(output_directory) + " --refinement-star-file " + str(refinement_star_file) +
+    f.write("relion_python_dynamight compute-rigid-transforms " + str(output_directory) + " --refinement-star-file " + str(refinement_star_file) +
             " --checkpoint-file " + str(checkpoint_file) + " --gpu-id " + str(gpu_id) + " --rigid\n")
     f.write("\n")
+    # PATH TO MPI and RELION 
     f.write("export PATH=/public/EM/OpenMPI/openmpi-4.0.1/build/bin:$PATH\n")
-    f.write("export PATH=/public/EM/RELION/relion-4.0-dev/build-cpu/bin:$PATH\n")
+    f.write("export PATH=/public/EM/RELION/relion-5.0/build-cpu/bin:$PATH\n")
     f.write("\n")
     starfile_directory = output_directory/"body_starfiles"
     for i in range(n_bodies):
