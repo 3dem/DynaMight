@@ -1427,3 +1427,33 @@ def compute_input_latents(decoder, r, t, ctf, input_ims):
     ATA = A.transpose(1, 2)
     lat = torch.linalg.solve(ATA, y)
     return lat
+    
+def write_reconstruction_script(output_directory, refinement_star_file, checkpoint_file, gpu_id, n_bodies):
+    reconstruction_directory = output_directory/"relion_reconstructions"
+    reconstruction_directory.mkdir(exist_ok=True, parents=True)
+    f = open(reconstruction_directory/"reconstruct.sh", "w")
+    f.write("#!/bin/bash -l\n")
+    f.write("\n")
+    f.write("source /lmb/home/schwab/miniconda3/bin/activate dynamight\n")
+    f.write("\n")
+    f.write("dynamight compute-rigid-transforms " + str(output_directory) + " --refinement-star-file " + str(refinement_star_file) +
+            " --checkpoint-file " + str(checkpoint_file) + " --gpu-id " + str(gpu_id) + " --rigid\n")
+    f.write("\n")
+    f.write("source /public/gcc/gcc10_2_0.sh\n")
+    f.write("source /public/compilers/intel-2021.3/setvars.sh\n")
+    f.write("export OMPI_CC=icc\n")
+    f.write("export OMPI_CXX=icpc\n")
+    f.write("export PATH=/public/EM/OpenMPI/openmpi-4.0.1/build/bin:$PATH\n")
+    f.write("export LANG=en_US.utf8\n")
+    f.write("export LC_ALL=en_US.utf8\n")
+    f.write("export PATH=/public/EM/RELION/relion-4.0-dev/build-cpu/bin:$PATH\n")
+    f.write("\n")
+    starfile_directory = output_directory/"body_starfiles"
+    for i in range(n_bodies):
+        f.write("mpirun --oversubscribe -n 15 relion_reconstruct_mpi --i " + str(starfile_directory) + "/body_" +
+                str(i+1)+".star --ctf --subset 1 --o " + str(reconstruction_directory) + "/body_"+str(i+1)+"_half1.mrc\n")
+        f.write("mpirun --oversubscribe -n 15 relion_reconstruct_mpi --i " + str(starfile_directory) + "/body_" +
+                str(i+1)+".star --ctf --subset 2 --o " + str(reconstruction_directory) + "/body_"+str(i+1)+"_half2.mrc\n")
+
+    f.close()
+    os.chmod(reconstruction_directory/"reconstruct.sh", 0o744)
