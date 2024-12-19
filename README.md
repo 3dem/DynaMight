@@ -12,6 +12,8 @@ Analysing continuous heterogeneity in a cryo-EM dataset with dynamight consists 
 
 ## Installation
 
+We recommend to install DynaMight with RELION. For a detailed installation intruction see (https://relion.readthedocs.io/en/release-5.0/Installation.html)
+
 *DynaMight* is available from the Python package index ([PyPI](https://pypi.org/)).
 
 Please install using `pip` in a clean virtual environment.
