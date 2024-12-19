@@ -41,7 +41,11 @@ A modified version of Dynamight estimates rigid deformations for user defined bo
 $$ D_z(x) = \sum_{i=1}^N \sum_{j=1}^{N_i} \varphi_j(R_{i,z}(x)),$$
 
 where $N_i$ is the number of Gaussians within mask $m_i$ and $R_{i,z}$ is the rigid transform that is estimated for mask $m_i$ from the latent representation $z$. 
+This modified version can be run from the command line using
 
+**dynamight optimize-deformations-rigid run_data.star /dataset/output --initial-model map.mrc --deformations-masks mask_folder**
+
+where mask_folder contains the binary masks used for splitting up the Gaussians.
 
 ### Visualization 
 
