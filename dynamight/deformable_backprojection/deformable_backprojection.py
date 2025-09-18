@@ -64,8 +64,8 @@ def deformable_backprojection(
                 'forward_deformations/checkpoints/checkpoint_final.pth'
 
         cp = torch.load(inverse_deformation_directory /
-                        'inv_chkpt.pth', map_location=device)
-        cp_vae = torch.load(vae_directory, map_location=device)
+                        'inv_chkpt.pth', map_location=device, weights_only=False)
+        cp_vae = torch.load(vae_directory, map_location=device, weights_only=False)
 
         if refinement_star_file is None:
             refinement_star_file = cp_vae['refinement_directory']

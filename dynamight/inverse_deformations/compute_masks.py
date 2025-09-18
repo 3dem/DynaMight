@@ -52,7 +52,7 @@ def compute_masks_for_rigid_transforms(
     if checkpoint_file is None:
         checkpoint_file = forward_deformations_directory / 'checkpoint_final.pth'
 
-    checkpoint = torch.load(checkpoint_file, map_location=device)
+    checkpoint = torch.load(checkpoint_file, map_location=device, weights_only=False)
 
     if refinement_star_file == None:
         refinement_star_file = checkpoint['refinement_directory']

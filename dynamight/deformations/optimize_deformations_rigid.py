@@ -187,7 +187,7 @@ def optimize_deformations_rigid(
 
         # initialise training dataloaders
         if checkpoint_file is not None:  # get subsets from checkpoint if present
-            cp = torch.load(checkpoint_file, map_location=device)
+            cp = torch.load(checkpoint_file, map_location=device, weights_only=False)
             inds_half1 = cp['indices_half1'].cpu().numpy()
             val_indices = cp['indices_val'].cpu().numpy()
             inds_half2 = list(

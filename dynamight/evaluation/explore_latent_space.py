@@ -46,9 +46,9 @@ def explore_latent_space(
     if checkpoint_file is None:
         checkpoint_file = output_directory / \
             'forward_deformations/checkpoints/checkpoint_final.pth'
-    cp = torch.load(checkpoint_file, map_location=device)
+    cp = torch.load(checkpoint_file, map_location=device, weights_only=False)
     if inverse_deformation is not None:
-        cp_inv = torch.load(inverse_deformation, map_location=device)
+        cp_inv = torch.load(inverse_deformation, map_location=device, weights_only=False)
         inv_half1 = cp_inv['inv_half1']
         inv_half2 = cp_inv['inv_half2']
         inv_half1.load_state_dict(cp_inv['inv_half1_state_dict'])

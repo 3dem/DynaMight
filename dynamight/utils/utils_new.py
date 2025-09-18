@@ -1151,7 +1151,7 @@ def initial_optimization(cons_model, atom_model, device, directory, angpix, N_ep
 
 
 def load_models(path, device, box_size, n_classes):
-    cp = torch.load(path, map_location=device)
+    cp = torch.load(path, map_location=device, weights_only=False)
     encoder_half1 = cp['encoder_half1']
     encoder_half2 = cp['encoder_half2']
     # cons_model_l = cp['consensus']

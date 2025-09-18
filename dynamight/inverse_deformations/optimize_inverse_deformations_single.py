@@ -52,7 +52,7 @@ def optimize_inverse_deformations_single(
     if vae_checkpoint is None:
         vae_checkpoint = forward_deformations_directory / 'checkpoint_final.pth'
 
-    checkpoint = torch.load(vae_checkpoint, map_location=device)
+    checkpoint = torch.load(vae_checkpoint, map_location=device, weights_only=False)
 
     if refinement_star_file == None:
         refinement_star_file = checkpoint['refinement_directory']
